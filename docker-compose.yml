@@ -1,0 +1,200 @@
+version: "3.7"
+
+x-api: &api_common
+  image: "registry.gitlab.com/netyce/api"
+  environment:
+    ALLOWED_ORIGINS: '["*"]'
+    AUTH0_AUDIENCE: https://dev.netcarrot.io
+    AUTH0_CLIENT_ID: n/a
+    AUTH0_CLIENT_SECRET: n/a
+    AUTH0_TENANT: net-carrot.eu
+    CELERY_BROKER_URL: redis://redis
+    CELERY_RESULT_BACKEND: redis://redis
+    DEBUG: 1
+    JWT_AUDIENCE: "https://dev.netyce.com"
+    JWT_ALGORITHM: HS256
+    JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs
+    MONGO_URL: mongodb://root:example@mongo4:27017/?readPreference=secondary&ssl=false&serverSelectionTimeoutMS=3000
+    PERSISTENT_VOLUME_PATH: /data/policy-repository
+    REDIS_URL: redis://redis
+    UVICORN_ROOT_PATH: /
+    WORKDIR_VOLUME_PATH: /data/policy-workdir
+    YCE_DOCKERIZED: K8S
+    AUTH_BACKEND: netyce
+    GIT_SERVER: git://gitd
+    GIT_REPO_MANAGER: '["gitd",9419]'
+    CLI_PROXY_LISTEN: '0.0.0.0'
+    CLI_PROXY_PORT: 9876
+  volumes:
+    - type: volume
+      source: policy-data
+      target: /data
+      bind:
+        propagation: shared
+  depends_on:
+    - redis
+    - mongo
+
+services:
+  mongo:
+    image: mongo:4
+    container_name: mongo4
+    ports:
+      - "27017:27017"
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+    volumes:
+      - type: volume
+        source: mongodb
+        target: /data/db
+        bind:
+          propagation: shared
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+
+  api:
+    <<: *api_common
+    container_name: api
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/status"]
+      start_period: 5s
+      interval: 5s
+
+  celery:
+    <<: *api_common
+    container_name: celery
+    command:
+      - "celery"
+      - "-A"
+      - "app.celery:celery"
+      - "worker"
+      - "-c"
+      - "2"
+      - "-l"
+      - "DEBUG"
+      - "-X"
+      - "compliance_run"
+      - "-B"
+      - "--scheduler"
+      - "app.repository.beats.ApiScheduler"
+    healthcheck:
+      test: ["CMD", "celery", "inspect", "ping", "-t", "5"]
+      start_period: 5s
+      interval: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+
+  gitd:
+    image: registry.gitlab.com/netyce/gitd
+    container_name: gitd
+    ports:
+      - "9418:9418"
+      - "9419:9419"
+    volumes:
+      - git:/git:z
+    healthcheck:
+      test: echo "PING" | nc -v localhost 9419
+      start_period: 15s
+      interval: 5s
+
+  swagger:
+    image: swaggerapi/swagger-ui
+    container_name: swagger
+    environment:
+      SWAGGER_JSON_URL: "/openapi.json"
+      TRY_IT_OUT_ENABLED: true
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+
+  tester-frontend:
+    image: registry.gitlab.com/netyce/tester-frontend:local
+    container_name: tester-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+  kibbitzer:
+    image: registry.gitlab.com/netyce/kibbitzer:latest
+    container_name: kibbitzer
+    volumes:
+      - secret:/run/secrets:z
+    entrypoint:
+      - /bin/true
+    restart: unless-stopped
+
+  agent:
+    hostname: agent
+    image: docker.io/nysupport/netyce-agent:latest
+    container_name: agent
+    environment:
+      configuration: |
+        ws_connection_params:
+            uri: 'ws://api:8000/api/v1/agents/ws'
+            extra_headers:
+                x-client-id: 'vblTkBtyyxxsDcJqf'
+                x-platform: docker
+            user_agent_header: 'netyce-agent[pwvTQzSgznspdjJWNj]'
+        CONFIG_FILE: /agent/agent.conf
+
+      PUID: 1000
+      PGID: 1000
+      TZ: Etc/UTC
+      SHENV_API_URL: "http://api:8000"
+    #      SHENV_JUMP_HOST: 172.16.0.67
+    volumes:
+      - /home/netpicker/netpick-agent/log:/var/log:z
+      - /home/netpicker/netpick-agent:/agent:z
+      - /home/netpicker/netpick-agent/agent-conf:/agent-conf:z
+      - /var/run/docker.sock:/var/run/docker.sock
+      #- /run/podman/podman.sock:/var/run/docker.sock
+      - config:/agent-config:z
+      - secret:/run/secrets:z
+      - dtd-vol:/transferium:z
+
+    ports:
+      - 5514:5514/udp
+      - 6601:6601/tcp
+      - 6514:6514/tcp
+      - 8765:8765/tcp
+      # - 9876:9876/tcp
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: "echo LST | nc -v localhost 8765"
+      start_period: 2s
+      interval: 5s
+
+  licence-issuer:
+    container_name: lic
+    image: registry.gitlab.com/netyce/licence-issuer
+    ports:
+      - 8443:8443
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      start_period: 5s
+      interval: 5s
+volumes:
+  policy-data:
+  mongodb:
+  git:
+  data-tf:
+  ssh-keys:
+  config:
+  secret:
+  dtd-vol:
+#   external: true

@@ -11,9 +11,17 @@ You can install Netpicker on a machine with or without an internet connection.
 
 - ## Clone the YAML
 
-`git clone https://github.com/netpicker/netpicker`
-`cd netpicker`
+```
+git clone https://github.com/netpicker/netpicker
+cd netpicker
+```
 
 ## Run docker compose
 
-`docker compose up -d`
+```
+docker compose up -d
+```
+
+## Open Netpicker
+
+Go to http://localhost/ to login in to the Netpicker application with username `admin@defaulttenant.com` and password `admin`

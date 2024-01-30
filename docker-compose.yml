@@ -4,6 +4,10 @@ x-api: &api_common
   image: netpicker/api
   environment:
     ALLOWED_ORIGINS: '["*"]'
+    AUTH0_AUDIENCE: n/a
+    AUTH0_CLIENT_ID: n/a
+    AUTH0_CLIENT_SECRET: n/a
+    AUTH0_TENANT: n/a
     CELERY_BROKER_URL: redis://redis
     CELERY_RESULT_BACKEND: redis://redis
     DEBUG: 1

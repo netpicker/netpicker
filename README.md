@@ -24,4 +24,4 @@ docker compose up -d
 
 ### Open Netpicker
 
-Go to http://localhost/ to login in to the Netpicker application with username `admin@defaulttenant.com` and password `admin`
+Go to http://localhost/ to login in to the Netpicker application with username `admin@admin.com` and password `12345678`

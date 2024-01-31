@@ -25,6 +25,9 @@ x-api: &api_common
     GIT_REPO_MANAGER: '["gitd",9419]'
     CLI_PROXY_LISTEN: '0.0.0.0'
     CLI_PROXY_PORT: 9876
+    INIT_USER: 'admin@admin.com'
+    INIT_PASSWORD: '12345678'
+    INIT_TENANT: 'DefaultTenant'
   volumes:
     - type: volume
       source: policy-data

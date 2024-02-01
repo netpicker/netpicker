@@ -182,15 +182,6 @@ services:
       start_period: 2s
       interval: 5s
 
-  licence-issuer:
-    container_name: lic
-    image: netpicker/licence-issuer
-    ports:
-      - 8443:8443
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
-      start_period: 5s
-      interval: 5s
 volumes:
   policy-data:
   mongodb:
@@ -200,4 +191,3 @@ volumes:
   config:
   secret:
   dtd-vol:
-#   external: true

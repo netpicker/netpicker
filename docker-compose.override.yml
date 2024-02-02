@@ -1,0 +1,13 @@
+version: "3.7"
+
+services:
+  licence-issuer:
+    container_name: lic
+    image: registry.gitlab.com/netyce/licence-issuer
+    ports:
+      - 8443:8443
+    healthcheck:
+      test: ["CMD", "curl", "-kf", "https://localhost:8443/"]
+      start_period: 5s
+      interval: 5s
+

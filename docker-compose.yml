@@ -1,7 +1,7 @@
 version: "3.7"
 
 x-api: &api_common
-  image: netpicker/api
+  image: "registry.gitlab.com/netyce/api"
   environment:
     ALLOWED_ORIGINS: '["*"]'
     AUTH0_AUDIENCE: n/a
@@ -23,12 +23,9 @@ x-api: &api_common
     AUTH_BACKEND: netyce
     GIT_SERVER: git://gitd
     GIT_REPO_MANAGER: '["gitd",9419]'
-    CLI_PROXY_LISTEN: '0.0.0.0'
-    CLI_PROXY_PORT: 9876
-    INIT_USER: 'admin@admin.com'
-    INIT_PASSWORD: '12345678'
-    INIT_TENANT: 'DefaultTenant'
+    CLI_PROXY_HOST: agent
   volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
     - type: volume
       source: policy-data
       target: /data
@@ -60,6 +57,8 @@ services:
   api:
     <<: *api_common
     container_name: api
+    labels:
+      service.netpicker.io: api
     ports:
       - "8000:8000"
     healthcheck:
@@ -70,6 +69,8 @@ services:
   celery:
     <<: *api_common
     container_name: celery
+    labels:
+      service.netpicker.io: celery
     command:
       - "celery"
       - "-A"
@@ -98,8 +99,10 @@ services:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
   gitd:
-    image: netpicker/gitd
+    image: registry.gitlab.com/netyce/gitd
     container_name: gitd
+    labels:
+      service.netpicker.io: gitd
     ports:
       - "9418:9418"
       - "9419:9419"
@@ -122,15 +125,17 @@ services:
       - api
 
   frontend:
-    image: netpicker/frontend
+    image: registry.gitlab.com/netyce/tester-frontend:local
     container_name: frontend
+    labels:
+      service.netpicker.io: front-end
     ports:
       - "80:80"
     depends_on:
       - api
 
   kibbitzer:
-    image: netpicker/kibbitzer
+    image: registry.gitlab.com/netyce/kibbitzer:latest
     container_name: kibbitzer
     volumes:
       - secret:/run/secrets:z
@@ -140,8 +145,10 @@ services:
 
   agent:
     hostname: agent
-    image: netpicker/agent
+    image: docker.io/nysupport/netyce-agent:latest
     container_name: agent
+    labels:
+      service.netpicker.io: agent
     environment:
       configuration: |
         ws_connection_params:
@@ -150,6 +157,8 @@ services:
                 x-client-id: 'vblTkBtyyxxsDcJqf'
                 x-platform: docker
             user_agent_header: 'netyce-agent[pwvTQzSgznspdjJWNj]'
+        cli_proxy:
+          listen: 0.0.0.0
         CONFIG_FILE: /agent/agent.conf
 
       PUID: 1000
@@ -172,7 +181,7 @@ services:
       - 6601:6601/tcp
       - 6514:6514/tcp
       - 8765:8765/tcp
-      # - 9876:9876/tcp
+      - 9876:9876/tcp
     restart: unless-stopped
     depends_on:
       api:

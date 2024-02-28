@@ -11,7 +11,7 @@ x-api: &api_common
     CELERY_BROKER_URL: redis://redis
     CELERY_RESULT_BACKEND: redis://redis
     DEBUG: 1
-    JWT_AUDIENCE: "https://dev.netyce.com"
+    JWT_AUDIENCE: "netpicker"
     JWT_ALGORITHM: HS256
     JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs
     MONGO_URL: mongodb://root:example@mongo4:27017/?readPreference=secondary&ssl=false&serverSelectionTimeoutMS=3000
@@ -19,21 +19,17 @@ x-api: &api_common
     REDIS_URL: redis://redis
     UVICORN_ROOT_PATH: /
     WORKDIR_VOLUME_PATH: /data/policy-workdir
-    YCE_DOCKERIZED: K8S
+    #YCE_DOCKERIZED: K8S
     AUTH_BACKEND: netyce
     GIT_SERVER: git://gitd
     GIT_REPO_MANAGER: '["gitd",9419]'
-    CLI_PROXY_LISTEN: '0.0.0.0'
-    CLI_PROXY_PORT: 9876
+    CLI_PROXY_HOST: agent
     INIT_USER: 'admin@admin.com'
     INIT_PASSWORD: '12345678'
     INIT_TENANT: 'DefaultTenant'
   volumes:
-    - type: volume
-      source: policy-data
-      target: /data
-      bind:
-        propagation: shared
+    - /var/run/docker.sock:/var/run/docker.sock
+    - policy-data:/data
   depends_on:
     - redis
     - mongo
@@ -49,11 +45,7 @@ services:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
     volumes:
-      - type: volume
-        source: mongodb
-        target: /data/db
-        bind:
-          propagation: shared
+      - mongodb:/data/db
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
 
@@ -101,10 +93,10 @@ services:
     image: netpicker/gitd
     container_name: gitd
     ports:
-      - "9418:9418"
-      - "9419:9419"
+      - "9418:9418" # Default port for git:// pull/push
+      - "9419:9419" # To manage new repos
     volumes:
-      - git:/git:z
+      - git:/git
     healthcheck:
       test: echo "PING" | nc -v localhost 9419
       start_period: 15s
@@ -133,7 +125,7 @@ services:
     image: netpicker/kibbitzer
     container_name: kibbitzer
     volumes:
-      - secret:/run/secrets:z
+      - secret:/run/secrets
     entrypoint:
       - /bin/true
     restart: unless-stopped
@@ -156,23 +148,22 @@ services:
       PGID: 1000
       TZ: Etc/UTC
       SHENV_API_URL: "http://api:8000"
-    #      SHENV_JUMP_HOST: 172.16.0.67
+      #SHENV_JUMP_HOST: 172.16.0.67
     volumes:
-      - /home/netpicker/netpick-agent/log:/var/log:z
-      - /home/netpicker/netpick-agent:/agent:z
-      - /home/netpicker/netpick-agent/agent-conf:/agent-conf:z
+      - /home/netpicker/netpick-agent/log:/var/log
+      - /home/netpicker/netpick-agent:/agent
+      - /home/netpicker/netpick-agent/agent-conf:/agent-conf
       - /var/run/docker.sock:/var/run/docker.sock
       #- /run/podman/podman.sock:/var/run/docker.sock
-      - config:/agent-config:z
-      - secret:/run/secrets:z
-      - dtd-vol:/transferium:z
-
+      - config:/agent-config
+      - secret:/run/secrets
+      - transferium:/transferium
     ports:
-      - 5514:5514/udp
+      - 5514:5514/udp # syslog
       - 6601:6601/tcp
       - 6514:6514/tcp
-      - 8765:8765/tcp
-      # - 9876:9876/tcp
+      - 8765:8765/tcp # secrets exchange
+      - 9876:9876/tcp # cli proxy
     restart: unless-stopped
     depends_on:
       api:
@@ -186,8 +177,6 @@ volumes:
   policy-data:
   mongodb:
   git:
-  data-tf:
-  ssh-keys:
   config:
   secret:
-  dtd-vol:
+  transferium:

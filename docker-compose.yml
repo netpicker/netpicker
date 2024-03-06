@@ -10,7 +10,6 @@ x-api: &api_common
     AUTH0_TENANT: n/a
     CELERY_BROKER_URL: redis://redis
     CELERY_RESULT_BACKEND: redis://redis
-    DEBUG: 1
     JWT_AUDIENCE: "netpicker"
     JWT_ALGORITHM: HS256
     JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs

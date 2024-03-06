@@ -134,7 +134,7 @@ services:
         ws_connection_params:
             uri: 'ws://api:8000/api/v1/agents/ws'
             extra_headers:
-                x-client-id: 'vblTkBtyyxxsDcJqf'
+                x-client-id: 'DrkSpy'
                 x-platform: docker
             user_agent_header: 'netyce-agent[pwvTQzSgznspdjJWNj]'
         CONFIG_FILE: /agent/agent.conf

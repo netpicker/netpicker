@@ -14,6 +14,8 @@ x-api: &api_common
     JWT_ALGORITHM: HS256
     JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs
     MONGO_URL: mongodb://root:example@mongo4:27017/?readPreference=secondary&ssl=false&serverSelectionTimeoutMS=3000
+    DB_URI: "postgresql+asyncpg://netpicker:netpicker@db/netpicker"
+    BEAT_DB_URI: "postgresql+psycopg2://netpicker:netpicker@db/netpicker"
     PERSISTENT_VOLUME_PATH: /data/policy-repository
     REDIS_URL: redis://redis
     UVICORN_ROOT_PATH: /
@@ -25,7 +27,7 @@ x-api: &api_common
     CLI_PROXY_HOST: agent
     INIT_USER: 'admin@admin.com'
     INIT_PASSWORD: '12345678'
-    INIT_TENANT: 'DefaultTenant'
+    INIT_TENANT: 'default'
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - policy-data:/data
@@ -47,6 +49,16 @@ services:
       - mongodb:/data/db
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+
+  db:
+    image: nysupport/netpicker-pg
+    container_name: db
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: s3rgts0p!
+    volumes:
+      - pg_data:/var/lib/postgresql/data:z
 
   api:
     <<: *api_common
@@ -175,6 +187,7 @@ services:
 volumes:
   policy-data:
   mongodb:
+  pg_data:
   git:
   config:
   secret:

@@ -13,15 +13,13 @@ x-api: &api_common
     JWT_AUDIENCE: "netpicker"
     JWT_ALGORITHM: HS256
     JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs
-    MONGO_URL: mongodb://root:example@mongo4:27017/?readPreference=secondary&ssl=false&serverSelectionTimeoutMS=3000
     DB_URI: "postgresql+asyncpg://netpicker:netpicker@db/netpicker"
     BEAT_DB_URI: "postgresql+psycopg2://netpicker:netpicker@db/netpicker"
     PERSISTENT_VOLUME_PATH: /data/policy-repository
     REDIS_URL: redis://redis
     UVICORN_ROOT_PATH: /
     WORKDIR_VOLUME_PATH: /data/policy-workdir
-    #YCE_DOCKERIZED: K8S
-    AUTH_BACKEND: netyce
+    AUTH_BACKEND: netyce_alchemy
     GIT_SERVER: git://gitd
     GIT_REPO_MANAGER: '["gitd",9419]'
     CLI_PROXY_HOST: agent
@@ -33,25 +31,11 @@ x-api: &api_common
     - policy-data:/data
   depends_on:
     - redis
-    - mongo
+    - db
 
 services:
-  mongo:
-    image: mongo:4
-    container_name: mongo4
-    ports:
-      - "27017:27017"
-    restart: always
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
-    volumes:
-      - mongodb:/data/db
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
-
   db:
-    image: nysupport/netpicker-pg
+    image: netpicker/db
     container_name: db
     ports:
       - 5432:5432
@@ -186,7 +170,6 @@ services:
 
 volumes:
   policy-data:
-  mongodb:
   pg_data:
   git:
   config:

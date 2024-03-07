@@ -1,27 +1,5 @@
-# Get started with Netpicker
+# Netpicker
 
-You can install Netpicker on a machine with or without an internet connection.
+Test the design, security and compliance of your network
 
-## Install on a machine with internet connection
-
-### Requirements
-
-- Docker or Podman
-- podman-compose (when using podman)
-
-### Clone the YAML
-
-```
-git clone https://github.com/netpicker/netpicker
-cd netpicker
-```
-
-### Run docker compose
-
-```
-docker compose up -d
-```
-
-### Open Netpicker
-
-Go to http://localhost/ to login in to the Netpicker application with username `admin@admin.com` and password `12345678`.
+Netpicker is a Python-based testing platform for your network. Check out our website at https://netpicker.io to get started.

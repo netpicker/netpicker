@@ -47,6 +47,8 @@ services:
   api:
     <<: *api_common
     container_name: api
+    labels:
+      service.netpicker.io: api
     ports:
       - "8000:8000"
     healthcheck:
@@ -57,20 +59,9 @@ services:
   celery:
     <<: *api_common
     container_name: celery
-    command:
-      - "celery"
-      - "-A"
-      - "app.celery:celery"
-      - "worker"
-      - "-c"
-      - "2"
-      - "-l"
-      - "DEBUG"
-      - "-X"
-      - "compliance_run"
-      - "-B"
-      - "--scheduler"
-      - "app.repository.beats.ApiScheduler"
+    labels:
+      service.netpicker.io: celery
+    command: /run-celery
     healthcheck:
       test: ["CMD", "celery", "inspect", "ping", "-t", "5"]
       start_period: 5s
@@ -111,6 +102,8 @@ services:
   frontend:
     image: netpicker/frontend
     container_name: frontend
+    labels:
+      service.netpicker.io: front-end
     ports:
       - "80:80"
     depends_on:
@@ -127,38 +120,23 @@ services:
 
   agent:
     hostname: agent
-    image: netpicker/agent
+    image: netpicker/agent:latest
     container_name: agent
+    labels:
+      service.netpicker.io: agent
     environment:
-      configuration: |
-        ws_connection_params:
-            uri: 'ws://api:8000/api/v1/agents/ws'
-            extra_headers:
-                x-client-id: 'DrkSpy'
-                x-platform: docker
-            user_agent_header: 'netyce-agent[pwvTQzSgznspdjJWNj]'
-        CONFIG_FILE: /agent/agent.conf
-
-      PUID: 1000
-      PGID: 1000
-      TZ: Etc/UTC
-      SHENV_API_URL: "http://api:8000"
-      #SHENV_JUMP_HOST: 172.16.0.67
+      CLI_PROXY_ADDR: '0.0.0.0'
     volumes:
-      - /home/netpicker/netpick-agent/log:/var/log
-      - /home/netpicker/netpick-agent:/agent
-      - /home/netpicker/netpick-agent/agent-conf:/agent-conf
       - /var/run/docker.sock:/var/run/docker.sock
-      #- /run/podman/podman.sock:/var/run/docker.sock
-      - config:/agent-config
-      - secret:/run/secrets
-      - transferium:/transferium
+      - config:/agent-config:z
+      - secret:/run/secrets:z
+      - dtd-vol:/transferium:z
     ports:
-      - 5514:5514/udp # syslog
+      - 5514:5514/udp
       - 6601:6601/tcp
       - 6514:6514/tcp
-      - 8765:8765/tcp # secrets exchange
-      - 9876:9876/tcp # cli proxy
+      - 8765:8765/tcp
+      - 9876:9876/tcp
     restart: unless-stopped
     depends_on:
       api:

@@ -130,7 +130,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - config:/agent-config:z
       - secret:/run/secrets:z
-      - dtd-vol:/transferium:z
+      - transferium:/transferium:z
     ports:
       - 5514:5514/udp
       - 6601:6601/tcp

@@ -126,6 +126,7 @@ services:
       service.netpicker.io: agent
     environment:
       CLI_PROXY_ADDR: '0.0.0.0'
+      SHENV_SHOW_RUN_nokia_srl: 'info'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - config:/agent-config:z

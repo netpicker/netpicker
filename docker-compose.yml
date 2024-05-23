@@ -26,6 +26,8 @@ x-api: &api_common
     INIT_USER: 'admin@admin.com'
     INIT_PASSWORD: '12345678'
     INIT_TENANT: 'default'
+    NETBOX_API: "https://endpoint_here/"
+    NETBOX_TOKEN: enter_token_here
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - policy-data:/data

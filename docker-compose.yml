@@ -1,5 +1,3 @@
-version: "3.7"
-
 x-api: &api_common
   image: netpicker/api
   environment:

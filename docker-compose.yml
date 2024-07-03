@@ -28,6 +28,7 @@ x-api: &api_common
     NETBOX_TOKEN: netbox_token_here
     SLURPIT_URL: "https://slurpit-endpoint/"
     SLURPIT_APIKEY: slurpit_apikey_here
+    #PUBLIC_POLICIES:
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - policy-data:/data

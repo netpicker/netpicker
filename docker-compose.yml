@@ -45,7 +45,7 @@ services:
     environment:
       POSTGRES_PASSWORD: s3rgts0p!
     volumes:
-      - pg_data:/var/lib/postgresql/data:z
+      - pg_data:/var/lib/postgresql/data
 
   api:
     <<: *api_common
@@ -133,9 +133,9 @@ services:
       SHENV_PRIVILEGED_PLATFORMS: 'privileged_platform'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - config:/agent-config:z
-      - secret:/run/secrets:z
-      - transferium:/transferium:z
+      - config:/agent-config
+      - secret:/run/secrets
+      - transferium:/transferium
     ports:
       - 5514:5514/udp
       - 6601:6601/tcp

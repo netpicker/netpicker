@@ -29,6 +29,7 @@ x-api: &api_common
     SLURPIT_URL: "https://slurpit-endpoint/"
     SLURPIT_APIKEY: slurpit_apikey_here
     #PUBLIC_POLICIES:
+    #PROXY_SSL_VERIFY: 0
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - policy-data:/data
@@ -115,6 +116,8 @@ services:
   kibbitzer:
     image: netpicker/kibbitzer
     container_name: kibbitzer
+    labels:
+      service.netpicker.io: kibbitzer
     volumes:
       - secret:/run/secrets
     entrypoint:

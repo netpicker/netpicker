@@ -118,11 +118,17 @@ services:
     container_name: kibbitzer
     labels:
       service.netpicker.io: kibbitzer
+    environment:
+      SHENV_API_URL: http://api:8000
+      LOG_LEVEL: DEBUG
+    healthcheck:
+      test: echo "PING Mac" | nc -v localhost 9696
+      start_period: 15s
+      interval: 30s
     volumes:
       - secret:/run/secrets
-    entrypoint:
-      - /bin/true
-    restart: unless-stopped
+    depends_on:
+      - redis
 
   agent:
     hostname: agent

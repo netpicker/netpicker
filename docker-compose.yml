@@ -30,7 +30,7 @@ x-api: &api_common
     SLURPIT_APIKEY: slurpit_apikey_here
     #PUBLIC_POLICIES:
     #PROXY_SSL_VERIFY: 0 # does not verify any SSL certificate
-    #PROXY_SSL_VERIFY_EXEMPT_HOSTS: ['mylab', 'yourlab'] # does not verify SSL certificates for given hostnames
+    #PROXY_SSL_VERIFY_EXEMPT_HOST: '["my.host", "your.host"]' # does not verify SSL certificates for given hostnames
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - policy-data:/data

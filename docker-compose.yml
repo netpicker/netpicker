@@ -123,7 +123,7 @@ services:
       SHENV_API_URL: http://api:8000
       LOG_LEVEL: DEBUG
     healthcheck:
-      test: echo "PING Mac" | nc -v localhost 9696
+      test: echo "PING Mac" | nc -v 127.0.0.1 9696
       start_period: 15s
       interval: 30s
     volumes:

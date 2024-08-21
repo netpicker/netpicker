@@ -2,6 +2,7 @@ x-api: &api_common
   image: netpicker/api
   environment:
     ALLOWED_ORIGINS: '["*"]'
+    #API_URL: http://api:8000
     AUTH0_AUDIENCE: n/a
     AUTH0_CLIENT_ID: n/a
     AUTH0_CLIENT_SECRET: n/a
@@ -121,6 +122,8 @@ services:
       service.netpicker.io: kibbitzer
     environment:
       SHENV_API_URL: http://api:8000
+      #SHENV_CELERY_BROKER_URL: redis://redis
+      #SHENV_CELERY_RESULT_BACKEND: redis://redis
       LOG_LEVEL: DEBUG
     healthcheck:
       test: echo "PING Mac" | nc -v 127.0.0.1 9696

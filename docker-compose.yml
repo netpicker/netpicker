@@ -76,8 +76,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
-    ports:
-      - "6379:6379"
+    #ports:
+    #  - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 

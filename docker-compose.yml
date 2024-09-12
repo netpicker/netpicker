@@ -128,6 +128,7 @@ services:
       SHENV_SHOW_RUN_mikrotik_routeros: 'export'
       SHENV_PRIVILEGED_PLATFORMS: 'privileged_platform'
       LOG_LEVEL: DEBUG
+      TAG_CONN_PARAMS: '{"slow":{"timeout":120}}'
     healthcheck:
       test: echo "PING Mac" | nc -v 127.0.0.1 9696
       start_period: 15s

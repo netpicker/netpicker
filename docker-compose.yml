@@ -1,3 +1,6 @@
+x-tag-params: &tag-params
+  TAG_CONN_PARAMS: '{"slow":{"timeout":120,"conn_timeout":50,"read_timeout_override":80,"fast_cli":false,"keepalive":5}}'
+
 x-api: &api_common
   image: netpicker/api
   environment:
@@ -121,6 +124,7 @@ services:
     labels:
       service.netpicker.io: kibbitzer
     environment:
+      <<: *tag-params
       SHENV_API_URL: http://api:8000
       #SHENV_CELERY_BROKER_URL: redis://redis
       #SHENV_CELERY_RESULT_BACKEND: redis://redis
@@ -128,7 +132,6 @@ services:
       SHENV_SHOW_RUN_mikrotik_routeros: 'export'
       SHENV_PRIVILEGED_PLATFORMS: 'privileged_platform'
       LOG_LEVEL: DEBUG
-      TAG_CONN_PARAMS: '{"slow":{"timeout":120}}'
     healthcheck:
       test: echo "PING Mac" | nc -v 127.0.0.1 9696
       start_period: 15s
@@ -145,8 +148,8 @@ services:
     labels:
       service.netpicker.io: agent
     environment:
+      <<: *tag-params
       CLI_PROXY_ADDR: '0.0.0.0'
-      TAG_CONN_PARAMS: '{"slow":{"timeout":120}}'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - config:/agent-config

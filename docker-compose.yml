@@ -131,6 +131,7 @@ services:
       SHENV_SHOW_RUN_nokia_srl: 'info'
       SHENV_SHOW_RUN_mikrotik_routeros: 'export'
       SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: 'export show-sensitive'
+      SHENV_TAG_SHOW_RUN_paloalto_panos: 'show config running'
       SHENV_PRIVILEGED_PLATFORMS: 'privileged_platform'
       LOG_LEVEL: DEBUG
     healthcheck:

@@ -153,6 +153,7 @@ services:
       <<: *tag-params
       CLI_PROXY_ADDR: '0.0.0.0'
       #DEDICATED_CONNECTIONS: 1
+      #SHARED_SSH_TTL: 3600 # Number of seconds to keep shared SSH connections open
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - config:/agent-config

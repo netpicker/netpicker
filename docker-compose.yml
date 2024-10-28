@@ -33,8 +33,9 @@ x-api: &api_common
     SLURPIT_URL: "https://slurpit-endpoint/"
     SLURPIT_APIKEY: slurpit_apikey_here
     #PUBLIC_POLICIES:
-    #PROXY_SSL_VERIFY: 0 # does not verify any SSL certificate
-    #PROXY_SSL_VERIFY_EXEMPT_HOST: '["my.host", "your.host"]' # does not verify SSL certificates for given hostnames
+    #PROXY_SSL_VERIFY: 0 # Do not verify any SSL certificate
+    #PROXY_SSL_VERIFY_EXEMPT_HOST: '["my.host", "your.host"]' # Do not verify SSL certificates for given hostnames
+    #RUN_TESTS_ON_CONFIG_CHANGE: 0 # Don't automatically run the rules when the config of a device has changed
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - policy-data:/data

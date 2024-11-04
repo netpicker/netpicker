@@ -132,6 +132,9 @@ services:
       SHENV_SHOW_RUN_nokia_srl: 'info'
       SHENV_SHOW_RUN_mikrotik_routeros: 'export'
       SHENV_SHOW_RUN_paloalto_panos: 'show config running'
+      SHENV_SHOW_RUN_corvil: 'show config'
+      SHENV_SHOW_RUN_gigamon: 'show running'
+      SHENV_SHOW_RUN_meinberg: 'generate_config_backup && cat /var/tmp/lantime_config.backup'
       SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: 'export show-sensitive'
       SHENV_PRIVILEGED_PLATFORMS: 'privileged_platform'
       LOG_LEVEL: DEBUG

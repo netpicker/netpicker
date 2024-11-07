@@ -39,6 +39,12 @@ x-api: &api_common
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - policy-data:/data
+  # Example syslog server setup:
+  #logging:
+    #driver: syslog
+    #options:
+      #syslog-address: "udp://logs4.papertrailapp.com:48684"
+      #tag: "{{.Name}}/{{.ID}}"
   depends_on:
     - redis
     - db

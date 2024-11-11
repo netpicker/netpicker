@@ -44,7 +44,7 @@ x-api: &api_common
     #driver: syslog
     #options:
       #syslog-address: "udp://logs4.papertrailapp.com:48684"
-      #tag: "{{.Name}}/{{.ID}}"
+      #tag: "netpicker/{{.Name}}/{{.ID}}"
   depends_on:
     - redis
     - db

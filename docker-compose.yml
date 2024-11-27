@@ -69,7 +69,7 @@ services:
       - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/status"]
-      start_period: 15s
+      start_period: 30s
       interval: 5s
 
   celery:

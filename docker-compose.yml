@@ -36,6 +36,7 @@ x-api: &api_common
     #PROXY_SSL_VERIFY: 0 # Do not verify any SSL certificate
     #PROXY_SSL_VERIFY_EXEMPT_HOST: '["my.host", "your.host"]' # Do not verify SSL certificates for given hostnames
     #RUN_TESTS_ON_CONFIG_CHANGE: 0 # Don't automatically run the rules when the config of a device has changed
+    #ENABLE_AUDIT_LOGGING: 1 # Enables audit logging for user actions in the API including POST body content
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - policy-data:/data

@@ -193,6 +193,7 @@ volumes:
   policy-data:
   pg_data:
   git:
+  redis:
   config:
   secret:
   transferium:

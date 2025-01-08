@@ -129,10 +129,10 @@ services:
       service.netpicker.io: front-end
     ports:
       - "80:80"
-      #- "443:443"
+      #- "443:443" # Enable for HTTPS support
     depends_on:
       - api
-    #volumes:
+    #volumes: # Enable (including lines below) for (self-signed) SSL certificate support
       #- ./nginx-ssl.conf:/etc/nginx/conf.d/nginx-ssl.conf
       #- ./certs:/etc/nginx/certs/
 

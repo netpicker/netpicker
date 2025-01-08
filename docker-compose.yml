@@ -37,8 +37,10 @@ x-api: &api_common
     #PROXY_SSL_VERIFY_EXEMPT_HOST: '["my.host", "your.host"]' # Do not verify SSL certificates for given hostnames
     #RUN_TESTS_ON_CONFIG_CHANGE: 0 # Don't automatically run the rules when the config of a device has changed
     #ENABLE_AUDIT_LOGGING: 1 # Enables audit logging for user actions in the API including POST body content
+    #PODMAN_SOCKET: '/run/user/1000/podman/podman.sock' # Enable for podman support and set your own path from: podman info --format {{.Host.RemoteSocket.Path}}
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
+    #- /run/user/1000/podman/podman.sock:/run/user/1000/podman/podman.sock # Enable for podman support and set your own path from: podman info --format {{.Host.RemoteSocket.Path}}
     - policy-data:/data
   # Example syslog server setup:
   #logging:

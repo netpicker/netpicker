@@ -107,9 +107,9 @@ services:
       - "9418:9418" # Default port for git:// pull/push
       - "9419:9419" # To manage new repos
     environment:
-      EXTERNAL_GIT_MAPPINGS: '{"rules/default.git": "https://github.com/netpicker/rules-default.git", "configs/default.git": "https://github.com/netpicker/configs-default.git"}'
-      EXTERNAL_GIT_USERNAME: "netpicker"
-      EXTERNAL_GIT_TOKEN: "github_pat_abc"
+      #EXTERNAL_GIT_MAPPINGS: '{"rules/default.git": "https://github.com/netpicker/rules-default.git", "configs/default.git": "https://github.com/netpicker/configs-default.git"}'
+      #EXTERNAL_GIT_USERNAME: "netpicker"
+      #EXTERNAL_GIT_TOKEN: "github_pat_abc"
       ENABLE_EXTERNAL_PUSH: "false"
     volumes:
       - git:/git

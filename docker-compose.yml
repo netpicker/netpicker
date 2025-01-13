@@ -101,9 +101,16 @@ services:
   gitd:
     image: netpicker/gitd
     container_name: gitd
+    labels:
+      service.netpicker.io: gitd
     ports:
       - "9418:9418" # Default port for git:// pull/push
       - "9419:9419" # To manage new repos
+    environment:
+      EXTERNAL_GIT_MAPPINGS: '{"rules/default.git": "https://github.com/netpicker/rules-default.git", "configs/default.git": "https://github.com/netpicker/configs-default.git"}'
+      EXTERNAL_GIT_USERNAME: "netpicker"
+      EXTERNAL_GIT_TOKEN: "github_pat_abc"
+      ENABLE_EXTERNAL_PUSH: "false"
     volumes:
       - git:/git
     healthcheck:
@@ -126,7 +133,7 @@ services:
     image: netpicker/frontend
     container_name: frontend
     labels:
-      service.netpicker.io: front-end
+      service.netpicker.io: frontend
     ports:
       - "80:80"
       #- "443:443" # Enable for HTTPS support

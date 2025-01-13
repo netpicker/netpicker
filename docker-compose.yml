@@ -56,8 +56,8 @@ services:
   db:
     image: netpicker/db
     container_name: db
-    ports:
-      - 5432:5432
+    #ports:
+      #- 5432:5432
     environment:
       POSTGRES_PASSWORD: s3rgts0p!
     volumes:
@@ -90,8 +90,8 @@ services:
     image: redis:7-alpine
     container_name: redis
     command: '--save 60 1 --loglevel warning'
-    ports:
-      - "6379:6379"
+    #ports:
+      #- "6379:6379"
     volumes:
       - redis:/data
     healthcheck:

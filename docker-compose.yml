@@ -1,133 +1,108 @@
 version: "3.7"
 
 x-api: &api_common
-  image: "registry.gitlab.com/netyce/api"
+  image: "netpicker/api:rc"
   environment:
-    ALLOWED_ORIGINS: '["*"]'
-    AUTH0_AUDIENCE: n/a
-    AUTH0_CLIENT_ID: n/a
-    AUTH0_CLIENT_SECRET: n/a
-    AUTH0_TENANT: n/a
-    CELERY_BROKER_URL: redis://redis
-    CELERY_RESULT_BACKEND: redis://redis
-    DEBUG: 1
-    JWT_AUDIENCE: "https://dev.netyce.com"
-    JWT_ALGORITHM: HS256
-    JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs
-    MONGO_URL: mongodb://root:example@mongo4:27017/?readPreference=secondary&ssl=false&serverSelectionTimeoutMS=3000
-    PERSISTENT_VOLUME_PATH: /data/policy-repository
-    REDIS_URL: redis://redis
+    alembic_version: "8d64b01e52b7"
+    LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
-    WORKDIR_VOLUME_PATH: /data/policy-workdir
-    YCE_DOCKERIZED: K8S
-    AUTH_BACKEND: netyce
-    GIT_SERVER: git://gitd
-    GIT_REPO_MANAGER: '["gitd",9419]'
-    CLI_PROXY_HOST: agent
   volumes:
-    - /var/run/docker.sock:/var/run/docker.sock
-    - type: volume
-      source: policy-data
-      target: /data
-      bind:
-        propagation: shared
+    - policy-data:/data
   depends_on:
-    - redis
-    - mongo
+    redis:
+      condition: service_healthy
+    db:
+      condition: service_healthy
+    gitd:
+      condition: service_started
+    gitdctrl:
+      condition: service_healthy
 
 services:
-  mongo:
-    image: mongo:4
-    container_name: mongo4
-    ports:
-      - "27017:27017"
-    restart: always
+  db:
+    image: netpicker/db
+    container_name: db
+    labels:
+      netpicker.io: service
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
+      POSTGRES_PASSWORD: s3rgts0p!
     volumes:
-      - type: volume
-        source: mongodb
-        target: /data/db
-        bind:
-          propagation: shared
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+      test: ["CMD-SHELL", "pg_isready", "-d", "db_prod"]
+      interval: 30s
+      timeout: 60s
+      retries: 5
+      start_period: 80s
 
   api:
     <<: *api_common
     container_name: api
     labels:
+      netpicker.io: service
       service.netpicker.io: api
-    ports:
-      - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/status"]
-      start_period: 5s
+      start_period: 60s
       interval: 5s
 
   celery:
     <<: *api_common
     container_name: celery
     labels:
+      netpicker.io: service
       service.netpicker.io: celery
-    command:
-      - "celery"
-      - "-A"
-      - "app.celery:celery"
-      - "worker"
-      - "-c"
-      - "2"
-      - "-l"
-      - "DEBUG"
-      - "-X"
-      - "compliance_run"
-      - "-B"
-      - "--scheduler"
-      - "app.repository.beats.ApiScheduler"
+    command: /run-celery
     healthcheck:
       test: ["CMD", "celery", "inspect", "ping", "-t", "5"]
-      start_period: 5s
+      start_period: 10s
       interval: 30s
 
   redis:
     image: redis:7-alpine
     container_name: redis
-    ports:
-      - "6379:6379"
+    labels:
+      netpicker.io: service
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
   gitd:
-    image: registry.gitlab.com/netyce/gitd
+    image: "netpicker/gitd:rc"
     container_name: gitd
     labels:
+      netpicker.io: service
       service.netpicker.io: gitd
-    ports:
-      - "9418:9418"
-      - "9419:9419"
     volumes:
-      - git:/git:z
+      - git:/git
+
+  gitdctrl:
+    image: "netpicker/gitdctrl:rc"
+    container_name: gitdctrl
+    labels:
+      netpicker.io: service
+      service.netpicker.io: gitdctrl
+    volumes:
+      - git:/git
     healthcheck:
       test: echo "PING" | nc -v localhost 9419
-      start_period: 15s
+      start_period: 5s
       interval: 5s
+    restart: unless-stopped
 
   swagger:
     image: swaggerapi/swagger-ui
     container_name: swagger
     environment:
       SWAGGER_JSON_URL: "/openapi.json"
-      TRY_IT_OUT_ENABLED: true
-    ports:
-      - "8080:8080"
+      TRY_IT_OUT_ENABLED: 1
     depends_on:
       - api
 
   frontend:
-    image: registry.gitlab.com/netyce/tester-frontend:local
+    image: "netpicker/frontend:rc"
     container_name: frontend
     labels:
+      netpicker.io: service
       service.netpicker.io: front-end
     ports:
       - "80:80"
@@ -135,68 +110,69 @@ services:
       - api
 
   kibbitzer:
-    image: registry.gitlab.com/netyce/kibbitzer:latest
+    image: "netpicker/kibbitzer:rc"
     container_name: kibbitzer
+    labels:
+      netpicker.io: service
+      service.netpicker.io: kibbitzer
+    environment:
+      SHENV_API_URL: http://api:8000
+      LOG_LEVEL: DEBUG
+    healthcheck:
+      test: echo "ping Mac\n" | nc -v 127.0.0.1 9696
+      start_period: 15s
+      interval: 30s
     volumes:
-      - secret:/run/secrets:z
-    entrypoint:
-      - /bin/true
-    restart: unless-stopped
+      - secret:/run/secrets
+    depends_on:
+      - api
+      - redis
 
   agent:
     hostname: agent
-    image: docker.io/nysupport/netyce-agent:latest
+    image: "netpicker/agent:rc"
     container_name: agent
     labels:
+      netpicker.io: service
       service.netpicker.io: agent
     environment:
-      configuration: |
-        ws_connection_params:
-            uri: 'ws://api:8000/api/v1/agents/ws'
-            extra_headers:
-                x-client-id: 'vblTkBtyyxxsDcJqf'
-                x-platform: docker
-            user_agent_header: 'netyce-agent[pwvTQzSgznspdjJWNj]'
-        cli_proxy:
-          listen: 0.0.0.0
-        CONFIG_FILE: /agent/agent.conf
-
-      PUID: 1000
-      PGID: 1000
-      TZ: Etc/UTC
-      SHENV_API_URL: "http://api:8000"
-    #      SHENV_JUMP_HOST: 172.16.0.67
+      CLI_PROXY_ADDR: '0.0.0.0'
+      # CLI_TRACE_DIR: /tmp/trace-cli
+      # DEDICATED_CONNECTIONS: 1
+      # SHENV_JUMP_HOST: '192.168.60.3'
+      SHENV_PRIVILEGED_PLATFORMS: 'privileged_platform'
+      SHENV_SHOW_RUN_nokia_srl: 'info'
+      SHARED_SSH_TTL: 180
     volumes:
-      - /home/netpicker/netpick-agent/log:/var/log:z
-      - /home/netpicker/netpick-agent:/agent:z
-      - /home/netpicker/netpick-agent/agent-conf:/agent-conf:z
-      - /var/run/docker.sock:/var/run/docker.sock
-      #- /run/podman/podman.sock:/var/run/docker.sock
-      - config:/agent-config:z
-      - secret:/run/secrets:z
-      - dtd-vol:/transferium:z
-
-    ports:
-      - 5514:5514/udp
-      - 6601:6601/tcp
-      - 6514:6514/tcp
-      - 8765:8765/tcp
-      - 9876:9876/tcp
+      - secret:/run/secrets
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: "echo LST | nc -v localhost 8765"
-      start_period: 2s
-      interval: 5s
+      test: "echo LST | nc -v 127.0.0.1 8765"
+      start_period: 12s
+      interval: 10s
+
+  syslog-ng:
+    image: "netpicker/syslog_ng:rc"
+    labels:
+      netpicker.io: service
+      service.netpicker.io: syslog-ng
+    ports:
+      - 5514:514/udp
+      - 6601:601/tcp
+      - 6514:6614/tcp
+    volumes:
+      - syslog:/var/lib/syslog-ng
+    depends_on:
+      - agent
 
 volumes:
-  policy-data:
-  mongodb:
-  git:
-  data-tf:
-  ssh-keys:
   config:
+  git:
+  pg_data:
+  policy-data:
   secret:
-  dtd-vol:
+  syslog:
+  transferium:

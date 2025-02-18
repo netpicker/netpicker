@@ -1,7 +1,7 @@
 version: "3.7"
 
 x-api: &api_common
-  image: "netpicker/api:2.0.4.4-rc"
+  image: "netpicker/api:2.0.4.6-rc"
   environment:
     alembic_version: "8d64b01e52b7"
     LOG_LEVEL: INFO
@@ -41,6 +41,8 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: api
+    ports:
+      - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/status"]
       start_period: 60s
@@ -63,11 +65,15 @@ services:
     container_name: redis
     labels:
       netpicker.io: service
+    volumes:
+      - redis:/data
+    command: '--save 60 1 --loglevel warning'
+    restart: on-failure
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
   gitd:
-    image: "netpicker/gitd:2.0.4.4-rc"
+    image: "netpicker/gitd:2.0.4.6-rc"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -76,7 +82,7 @@ services:
       - git:/git
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.0.4.4-rc"
+    image: "netpicker/gitdctrl:2.0.4.6-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -99,7 +105,7 @@ services:
       - api
 
   frontend:
-    image: "netpicker/tester-frontend:2.0.4.4-rc"
+    image: "netpicker/tester-frontend:2.0.4.6-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -110,13 +116,18 @@ services:
       - api
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.0.4.4-rc"
+    image: "netpicker/kibbitzer:2.0.4.6-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
       service.netpicker.io: kibbitzer
     environment:
       SHENV_API_URL: http://api:8000
+      SHENV_API_TIMEOUT: 30
+      SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"
+      SHENV_SHOW_RUN_mikrotik_routeros: "export"
+      SHENV_SHOW_RUN_paloalto_panos: "show config running"
+      SHENV_TAG_SHOW_RUN_v7: "export show-sensitive"
       LOG_LEVEL: DEBUG
     healthcheck:
       test: echo "ping Mac\n" | nc -v 127.0.0.1 9696
@@ -130,7 +141,7 @@ services:
 
   agent:
     hostname: agent
-    image: "netpicker/agent:2.0.4.4-rc"
+    image: "netpicker/agent:2.0.4.6-rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -155,7 +166,7 @@ services:
       interval: 10s
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.0.4.4-rc"
+    image: "netpicker/syslog-ng:2.0.4.6-rc"
     labels:
       netpicker.io: service
       service.netpicker.io: syslog-ng

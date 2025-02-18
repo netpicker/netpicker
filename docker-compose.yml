@@ -122,13 +122,17 @@ services:
       netpicker.io: service
       service.netpicker.io: kibbitzer
     environment:
+      LOG_LEVEL: DEBUG
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
       SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"
+      SHENV_SHOW_RUN_corvil: 'show config'
+      SHENV_SHOW_RUN_gigamon: 'show running'
+      SHENV_SHOW_RUN_meinberg: 'generate_config_backup && cat /var/tmp/lantime_config.backup'
       SHENV_SHOW_RUN_mikrotik_routeros: "export"
+      SHENV_SHOW_RUN_nokia_srl: 'info'
       SHENV_SHOW_RUN_paloalto_panos: "show config running"
-      SHENV_TAG_SHOW_RUN_v7: "export show-sensitive"
-      LOG_LEVEL: DEBUG
+      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: 'export show-sensitive'
     healthcheck:
       test: echo "ping Mac\n" | nc -v 127.0.0.1 9696
       start_period: 15s
@@ -148,11 +152,6 @@ services:
       service.netpicker.io: agent
     environment:
       CLI_PROXY_ADDR: '0.0.0.0'
-      # CLI_TRACE_DIR: /tmp/trace-cli
-      # DEDICATED_CONNECTIONS: 1
-      # SHENV_JUMP_HOST: '192.168.60.3'
-      SHENV_PRIVILEGED_PLATFORMS: 'privileged_platform'
-      SHENV_SHOW_RUN_nokia_srl: 'info'
       SHARED_SSH_TTL: 180
     volumes:
       - secret:/run/secrets
@@ -185,7 +184,7 @@ volumes:
   git:
   pg_data:
   policy-data:
+  redis:
   secret:
   syslog:
   transferium:
-  redis:

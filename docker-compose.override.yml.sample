@@ -1,0 +1,49 @@
+x-api: &api_common:
+  environment:
+    # ALLOWED_ORIGINS: '["*"]' # CORS domains
+    # API_URL: http://api:8000  # backend-endpoint with respect to service name and exposed port
+    # AUTH_BACKEND: netyce_alchemy  # auhenticating/authorizing backend
+    # BEAT_DB_URI: "postgresql+psycopg2://netpicker:netpicker@db/netpicker"  # Celery Beat Pg connection string
+    # DB_URI: "postgresql+asyncpg://netpicker:netpicker@db/netpicker"  # Async Pg connection string (API)
+    # CELERY_BROKER_URL: redis://redis
+    # CELERY_RESULT_BACKEND: redis://redis
+    # CLI_PROXY_HOST: agent
+    # ENABLE_AUDIT_LOGGING: 1 # Enables audit logging for user actions in the API including POST body content
+    # GIT_REPO_MANAGER: '["gitd",9419]'
+    # GIT_SERVER: git://gitd
+    # INIT_USER: 'admin@admin.com'
+    # INIT_PASSWORD: '12345678'
+    # INIT_TENANT: 'default'
+    # JWT_AUDIENCE: "netpicker"
+    # JWT_ALGORITHM: HS256
+    # JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs
+    # NETBOX_API: "https://netbox-endpoint/"
+    # NETBOX_TOKEN: netbox_token_here
+    # PROXY_SSL_VERIFY: 0 # Do not verify any SSL certificate
+    # PROXY_SSL_VERIFY_EXEMPT_HOST: '["my.host", "your.host"]' # Do not verify SSL certificates for given hostnames
+    # PUBLIC_POLICIES:
+    # REDIS_URL: redis://redis
+    # RUN_TESTS_ON_CONFIG_CHANGE: 0 # Don't automatically run the rules when the config of a device has changed
+    # SLURPIT_APIKEY: slurpit_apikey_here
+    # SLURPIT_URL: "https://slurpit-endpoint/"
+    # WORKDIR_VOLUME_PATH: /data/policy-workdir
+
+services:
+  api:
+  <<: *api_common
+
+  celery:
+  <<: *api_common
+
+  gitd:
+    environment:
+      # EXTERNAL_GIT_MAPPINGS: '{"rules/default.git": "https://github.com/netpicker/rules-default.git", "configs/default.git": "https://github.com/netpicker/configs-default.git"}'
+      # EXTERNAL_GIT_TOKEN: "github_pat_abc"
+      # EXTERNAL_GIT_USERNAME: "netpicker"
+
+  agent:
+    environment:
+      # CLI_TRACE_DIR: /tmp/trace-cli
+      # DEDICATED_CONNECTIONS: 1
+      # SHENV_JUMP_HOST: '192.168.x.x'  # target address of file transfer via scp/sftp/ftp/tftp
+

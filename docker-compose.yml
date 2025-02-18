@@ -1,5 +1,12 @@
 version: "3.7"
 
+x-tag-params: &tag-params
+  TAG_CONN_PARAMS: '{
+    "xslow":{"timeout":120,"conn_timeout":30,"read_timeout_override":30,"fast_cli":false,"keepalive":5},
+    "slow-cli": {"fast_cli": false}
+}'
+
+
 x-api: &api_common
   image: "netpicker/api:2.1"
   environment:
@@ -122,6 +129,7 @@ services:
       netpicker.io: service
       service.netpicker.io: kibbitzer
     environment:
+      <<: *tag-params
       LOG_LEVEL: DEBUG
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30

@@ -7,7 +7,7 @@ x-tag-params: &tag-params
 }'
 
 x-api: &api_common
-  image: "netpicker/api:2.1.2-rc"
+  image: "netpicker/api:2.1.2"
   environment:
     alembic_version: "8d64b01e52b7"
     LOG_LEVEL: INFO
@@ -79,7 +79,7 @@ services:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
   gitd:
-    image: "netpicker/gitd:2.1.2-rc"
+    image: "netpicker/gitd:2.1.2"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -88,7 +88,7 @@ services:
       - git:/git
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.1.2-rc"
+    image: "netpicker/gitdctrl:2.1.2"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -111,7 +111,7 @@ services:
       - api
 
   frontend:
-    image: "netpicker/tester-frontend:2.1.2-rc"
+    image: "netpicker/tester-frontend:2.1.2"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -122,7 +122,7 @@ services:
       - api
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.1.2-rc"
+    image: "netpicker/kibbitzer:2.1.2"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -152,7 +152,7 @@ services:
 
   agent:
     hostname: agent
-    image: "netpicker/agent:2.1.2-rc"
+    image: "netpicker/agent:2.1.2"
     container_name: agent
     labels:
       netpicker.io: service
@@ -175,7 +175,7 @@ services:
       interval: 10s
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.1.2-rc"
+    image: "netpicker/syslog-ng:2.1.2"
     container_name: syslog-ng
     labels:
       netpicker.io: service

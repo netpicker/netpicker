@@ -1,7 +1,13 @@
 version: "3.7"
 
+x-tag-params: &tag-params
+  TAG_CONN_PARAMS: '{
+    "xslow":{"timeout":120,"conn_timeout":30,"read_timeout_override":30,"fast_cli":false,"keepalive":5},
+    "slow-cli": {"fast_cli": false}
+}'
+
 x-api: &api_common
-  image: "netpicker/api:0.0.1.a-rc"
+  image: "netpicker/api:2.1.2-rc"
   environment:
     alembic_version: "8d64b01e52b7"
     LOG_LEVEL: INFO
@@ -73,7 +79,7 @@ services:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
   gitd:
-    image: "netpicker/gitd:0.0.1.a-rc"
+    image: "netpicker/gitd:2.1.2-rc"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -82,7 +88,7 @@ services:
       - git:/git
 
   gitdctrl:
-    image: "netpicker/gitdctrl:0.0.1.a-rc"
+    image: "netpicker/gitdctrl:2.1.2-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -105,7 +111,7 @@ services:
       - api
 
   frontend:
-    image: "netpicker/tester-frontend:0.0.1.a-rc"
+    image: "netpicker/tester-frontend:2.1.2-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -116,19 +122,24 @@ services:
       - api
 
   kibbitzer:
-    image: "netpicker/kibbitzer:0.0.1.a-rc"
+    image: "netpicker/kibbitzer:2.1.2-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
       service.netpicker.io: kibbitzer
     environment:
+      <<: *tag-params
+      LOG_LEVEL: DEBUG
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
       SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"
+      SHENV_SHOW_RUN_corvil: 'show config'
+      SHENV_SHOW_RUN_gigamon: 'show running'
+      SHENV_SHOW_RUN_meinberg: 'generate_config_backup && cat /var/tmp/lantime_config.backup'
       SHENV_SHOW_RUN_mikrotik_routeros: "export"
+      SHENV_SHOW_RUN_nokia_srl: 'info'
       SHENV_SHOW_RUN_paloalto_panos: "show config running"
-      SHENV_TAG_SHOW_RUN_v7: "export show-sensitive"
-      LOG_LEVEL: DEBUG
+      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: 'export show-sensitive'
     healthcheck:
       test: echo "ping Mac\n" | nc -v 127.0.0.1 9696
       start_period: 15s
@@ -141,7 +152,7 @@ services:
 
   agent:
     hostname: agent
-    image: "netpicker/agent:0.0.1.a-rc"
+    image: "netpicker/agent:2.1.2-rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -151,8 +162,6 @@ services:
       # CLI_TRACE_DIR: /tmp/trace-cli
       # DEDICATED_CONNECTIONS: 1
       # SHENV_JUMP_HOST: '192.168.60.3'
-      SHENV_PRIVILEGED_PLATFORMS: 'privileged_platform'
-      SHENV_SHOW_RUN_nokia_srl: 'info'
       SHARED_SSH_TTL: 180
     volumes:
       - secret:/run/secrets
@@ -166,7 +175,7 @@ services:
       interval: 10s
 
   syslog-ng:
-    image: "netpicker/syslog-ng:0.0.1.a-rc"
+    image: "netpicker/syslog-ng:2.1.2-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service
@@ -185,7 +194,7 @@ volumes:
   git:
   pg_data:
   policy-data:
+  redis:
   secret:
   syslog:
   transferium:
-  redis:

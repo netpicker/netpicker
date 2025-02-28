@@ -4,7 +4,7 @@ x-tag-params: &tag-params
   TAG_CONN_PARAMS: '{
     "xslow":{"timeout":120,"conn_timeout":30,"read_timeout_override":30,"fast_cli":false,"keepalive":5},
     "slow-cli": {"fast_cli": false}
-}'
+    }'
 
 x-api: &api_common
   image: "netpicker/api:2.1.3"

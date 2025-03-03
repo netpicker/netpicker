@@ -12,7 +12,7 @@ Netpicker supports the following authentication providers:
 
 1. **LDAP** - Lightweight Directory Access Protocol (`AUTH_BACKEND=ldap`)
 2. **SAML** - Security Assertion Markup Language (`AUTH_BACKEND=saml`)
-3. **OAuth/OpenID Connect** - Including Azure AD, Google, and GitHub (`AUTH_BACKEND=oauth`)
+3. **OAuth/OpenID Connect** - Including Azure AD, Google, and GitHub (`AUTH_BACKEND=netyce_alchemy`)
 
 ## Choosing the Right Authentication Provider
 

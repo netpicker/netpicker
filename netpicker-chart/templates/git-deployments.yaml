@@ -1,0 +1,112 @@
+{{- if .Values.gitd.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.gitd.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gitd
+    netpicker.io: service
+    service.netpicker.io: gitd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gitd
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gitd
+        netpicker.io: service
+        service.netpicker.io: gitd
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: gitd
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.gitd) }}
+          imagePullPolicy: {{ .Values.images.gitd.pullPolicy }}
+          volumeMounts:
+            - name: git
+              mountPath: /git
+          resources:
+            {{- toYaml .Values.gitd.resources | nindent 12 }}
+      volumes:
+        - name: git
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.gitd.fullname" . }}-data
+---
+{{- end }}
+
+{{- if .Values.gitdctrl.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.gitdctrl.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gitdctrl
+    netpicker.io: service
+    service.netpicker.io: gitdctrl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gitdctrl
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gitdctrl
+        netpicker.io: service
+        service.netpicker.io: gitdctrl
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: gitdctrl
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.gitdctrl) }}
+          imagePullPolicy: {{ .Values.images.gitdctrl.pullPolicy }}
+          ports:
+            - name: gitdctrl
+              containerPort: 9419
+              protocol: TCP
+          volumeMounts:
+            - name: git
+              mountPath: /git
+          livenessProbe:
+            tcpSocket:
+              port: 9419
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: 9419
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.gitdctrl.resources | nindent 12 }}
+      volumes:
+        - name: git
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.gitd.fullname" . }}-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.gitdctrl.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gitdctrl
+spec:
+  type: {{ .Values.gitdctrl.service.type }}
+  ports:
+    - port: {{ .Values.gitdctrl.service.port }}
+      targetPort: gitdctrl
+      protocol: TCP
+      name: gitdctrl
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: gitdctrl
+{{- end }} 

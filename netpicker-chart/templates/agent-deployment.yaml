@@ -1,0 +1,80 @@
+{{- if .Values.agent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.agent.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+    netpicker.io: service
+    service.netpicker.io: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+        netpicker.io: service
+        service.netpicker.io: agent
+    spec:
+      hostname: agent
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: agent
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.agent) }}
+          imagePullPolicy: {{ .Values.images.agent.pullPolicy }}
+          env:
+            - name: CLI_PROXY_ADDR
+              value: {{ .Values.agent.cliProxyAddr | quote }}
+            - name: SHARED_SSH_TTL
+              value: {{ .Values.agent.sharedSshTtl | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "netpicker.fullname" . }}-tag-params
+          ports:
+            - name: agent
+              containerPort: 8765
+              protocol: TCP
+          volumeMounts:
+            - name: secret
+              mountPath: /run/secrets
+          livenessProbe:
+            tcpSocket:
+              port: 8765
+            initialDelaySeconds: 12
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 8765
+            initialDelaySeconds: 12
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+      volumes:
+        - name: secret
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.agent.fullname" . }}-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.agent.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  type: {{ .Values.agent.service.type }}
+  ports:
+    - port: {{ .Values.agent.service.port }}
+      targetPort: agent
+      protocol: TCP
+      name: agent
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+{{- end }} 

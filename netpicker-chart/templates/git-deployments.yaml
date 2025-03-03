@@ -27,6 +27,10 @@ spec:
         - name: gitd
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.gitd) }}
           imagePullPolicy: {{ .Values.images.gitd.pullPolicy }}
+          ports:
+            - name: gitd
+              containerPort: 9418
+              protocol: TCP
           volumeMounts:
             - name: git
               mountPath: /git
@@ -36,6 +40,24 @@ spec:
         - name: git
           persistentVolumeClaim:
             claimName: {{ include "netpicker.gitd.fullname" . }}-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.gitd.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gitd
+spec:
+  type: {{ .Values.gitd.service.type }}
+  ports:
+    - port: {{ .Values.gitd.service.port }}
+      targetPort: gitd
+      protocol: TCP
+      name: gitd
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: gitd
 ---
 {{- end }}
 
@@ -102,6 +124,10 @@ metadata:
 spec:
   type: {{ .Values.gitdctrl.service.type }}
   ports:
+    - port: {{ .Values.gitd.service.port }}
+      targetPort: gitd
+      protocol: TCP
+      name: gitd
     - port: {{ .Values.gitdctrl.service.port }}
       targetPort: gitdctrl
       protocol: TCP
@@ -109,4 +135,4 @@ spec:
   selector:
     {{- include "netpicker.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: gitdctrl
-{{- end }} 
+{{- end }}

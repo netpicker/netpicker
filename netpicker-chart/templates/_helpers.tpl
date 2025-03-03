@@ -91,75 +91,75 @@ imagePullSecrets:
 Create a default fully qualified app name for database
 */}}
 {{- define "netpicker.db.fullname" -}}
-{{- printf "%s-db" (include "netpicker.fullname" .) -}}
+{{- printf "db" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for redis
 */}}
 {{- define "netpicker.redis.fullname" -}}
-{{- printf "%s-redis" (include "netpicker.fullname" .) -}}
+{{- printf "redis" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for api
 */}}
 {{- define "netpicker.api.fullname" -}}
-{{- printf "%s-api" (include "netpicker.fullname" .) -}}
+{{- printf "api" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for celery
 */}}
 {{- define "netpicker.celery.fullname" -}}
-{{- printf "%s-celery" (include "netpicker.fullname" .) -}}
+{{- printf "celery" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for gitd
 */}}
 {{- define "netpicker.gitd.fullname" -}}
-{{- printf "%s-gitd" (include "netpicker.fullname" .) -}}
+{{- printf "gitd" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for gitdctrl
 */}}
 {{- define "netpicker.gitdctrl.fullname" -}}
-{{- printf "%s-gitdctrl" (include "netpicker.fullname" .) -}}
+{{- printf "gitdctrl" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for swagger
 */}}
 {{- define "netpicker.swagger.fullname" -}}
-{{- printf "%s-swagger" (include "netpicker.fullname" .) -}}
+{{- printf "swagger" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for frontend
 */}}
 {{- define "netpicker.frontend.fullname" -}}
-{{- printf "%s-frontend" (include "netpicker.fullname" .) -}}
+{{- printf "frontend" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for kibbitzer
 */}}
 {{- define "netpicker.kibbitzer.fullname" -}}
-{{- printf "%s-kibbitzer" (include "netpicker.fullname" .) -}}
+{{- printf "kibbitzer" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for agent
 */}}
 {{- define "netpicker.agent.fullname" -}}
-{{- printf "%s-agent" (include "netpicker.fullname" .) -}}
+{{- printf "agent" -}}
 {{- end -}}
 
 {{/*
 Create a default fully qualified app name for syslog-ng
 */}}
 {{- define "netpicker.syslogng.fullname" -}}
-{{- printf "%s-syslogng" (include "netpicker.fullname" .) -}}
-{{- end -}} 
+{{- printf "syslogng" -}}
+{{- end -}}

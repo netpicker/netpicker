@@ -2,7 +2,7 @@
 # This is a YAML-formatted file.
 
 global:
-  imageRegistry: ""
+  imageRegistry: "docker.io"
   imagePullSecrets: []
   storageClass: ""
 
@@ -110,6 +110,9 @@ gitd:
   persistence:
     enabled: true
     size: 1Gi
+  service:
+    type: ClusterIP
+    port: 9418
   resources: {}
 
 # Git daemon control configuration

@@ -34,6 +34,8 @@ spec:
               value: {{ .Values.api.logLevel | quote }}
             - name: UVICORN_ROOT_PATH
               value: {{ .Values.api.uvicornRootPath | quote }}
+            - name: GIT_REPO_MANAGER
+              value: '["{{ include "netpicker.gitd.fullname" . }}", {{ .Values.gitdctrl.service.port }}]'
           ports:
             - name: http
               containerPort: 8000

@@ -83,7 +83,7 @@ api:
   resources: {}
   persistence:
     enabled: true
-    size: 1Gi
+    size: 20Gi
 
 # Celery configuration
 celery:
@@ -109,7 +109,7 @@ gitd:
   enabled: true
   persistence:
     enabled: true
-    size: 1Gi
+    size: 20Gi
   service:
     type: ClusterIP
     port: 9418

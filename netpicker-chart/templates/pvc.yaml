@@ -102,7 +102,7 @@ metadata:
     {{- include "netpicker.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   {{- if .Values.global.storageClass }}
   storageClassName: {{ .Values.global.storageClass }}
   {{- end }}

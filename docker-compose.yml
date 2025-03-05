@@ -4,12 +4,12 @@ x-tag-params: &tag-params
   TAG_CONN_PARAMS: '{
     "xslow":{"timeout":120,"conn_timeout":30,"read_timeout_override":30,"fast_cli":false,"keepalive":5},
     "slow-cli": {"fast_cli": false}
-}'
+    }'
 
 x-api: &api_common
-  image: "netpicker/api:2.1.3"
+  image: "netpicker/api:2.1.4-rc"
   environment:
-    alembic_version: "8d64b01e52b7"
+    alembic_version: "6ab16944b8ec"
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
   volumes:
@@ -82,7 +82,7 @@ services:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
   gitd:
-    image: "netpicker/gitd:2.1.3"
+    image: "netpicker/gitd:2.1.4-rc"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -91,7 +91,7 @@ services:
       - git:/git
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.1.3"
+    image: "netpicker/gitdctrl:2.1.4-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -114,7 +114,7 @@ services:
       - api
 
   frontend:
-    image: "netpicker/tester-frontend:2.1.3"
+    image: "netpicker/tester-frontend:2.1.4-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -125,7 +125,7 @@ services:
       - api
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.1.3"
+    image: "netpicker/kibbitzer:2.1.4-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -155,12 +155,13 @@ services:
 
   agent:
     hostname: agent
-    image: "netpicker/agent:2.1.3"
+    image: "netpicker/agent:2.1.4-rc"
     container_name: agent
     labels:
       netpicker.io: service
       service.netpicker.io: agent
     environment:
+      <<: *tag-params
       CLI_PROXY_ADDR: '0.0.0.0'
       # CLI_TRACE_DIR: /tmp/trace-cli
       # DEDICATED_CONNECTIONS: 1
@@ -178,7 +179,7 @@ services:
       interval: 10s
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.1.3"
+    image: "netpicker/syslog-ng:2.1.4-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service

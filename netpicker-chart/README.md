@@ -21,8 +21,7 @@ kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisione
 To install the chart with the release name `netpicker`:
 
 ```bash
-# Install the chart
-helm install netpicker ./netpicker-chart
+helm install netpicker .
 ```
 
 The command deploys Netpicker on the Kubernetes cluster with default configuration. The [Parameters](#parameters) section lists the parameters that can be configured during installation.

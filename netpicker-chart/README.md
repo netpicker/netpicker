@@ -30,11 +30,22 @@ helm uninstall netpicker
 
 ### Global parameters
 
-| Name                      | Description                                     | Value |
-| ------------------------- | ----------------------------------------------- | ----- |
-| `global.imageRegistry`    | Global Docker image registry                    | `""`  |
-| `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`  |
-| `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `""`  |
+| Name                      | Description                                     | Value             |
+| ------------------------- | ----------------------------------------------- | ----------------- |
+| `global.imageRegistry`    | Global Docker image registry                    | `""`              |
+| `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
+| `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"local-storage"` |
+
+### Storage Class parameters
+
+| Name                                | Description                              | Value                   |
+| ----------------------------------- | ---------------------------------------- | ----------------------- |
+| `storageClass.enabled`              | Enable the creation of the storage class | `true`                  |
+| `storageClass.name`                 | Name of the storage class                | `local-storage`         |
+| `storageClass.isDefault`            | Set as the default storage class         | `true`                  |
+| `storageClass.reclaimPolicy`        | Reclaim policy for the storage class     | `Retain`                |
+| `storageClass.allowVolumeExpansion` | Allow volumes to be expanded             | `true`                  |
+| `storageClass.mountOptions`         | Mount options for the storage class      | `[noatime, nodiratime]` |
 
 ### Common parameters
 

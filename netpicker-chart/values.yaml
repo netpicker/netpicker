@@ -4,7 +4,18 @@
 global:
   imageRegistry: "docker.io"
   imagePullSecrets: []
-  storageClass: ""
+  storageClass: "local-storage"
+
+# Storage class configuration
+storageClass:
+  enabled: true
+  name: "local-storage"
+  isDefault: true
+  reclaimPolicy: "Retain"
+  allowVolumeExpansion: true
+  mountOptions:
+    - noatime
+    - nodiratime
 
 images:
   api:

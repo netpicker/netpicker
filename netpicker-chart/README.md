@@ -6,23 +6,28 @@ This Helm chart deploys the Netpicker application on a Kubernetes cluster.
 
 - Kubernetes 1.19+
 - Helm 3.2.0+
+- Local Path Provisioner (instructions below)
+
+## Installing the Local Path Provisioner
+
+Before installing the chart, you need to install the Local Path Provisioner:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.31/deploy/local-path-storage.yaml
+```
 
 ## Installing the Chart
 
 To install the chart with the release name `netpicker`:
 
 ```bash
-# Add the Rancher chart repository (needed for the local-path-provisioner dependency)
-helm repo add rancher https://charts.rancher.io
-helm repo update
-
 # Install the chart
 helm install netpicker ./netpicker-chart
 ```
 
 The command deploys Netpicker on the Kubernetes cluster with default configuration. The [Parameters](#parameters) section lists the parameters that can be configured during installation.
 
-By default, the chart will also install the Local Path Provisioner as a dependency, which provides local storage capabilities. This can be disabled by setting `localPathProvisioner.enabled` to `false` if you already have it installed or prefer to use a different storage provisioner.
+Make sure you have installed the Local Path Provisioner as described in the [Installing the Local Path Provisioner](#installing-the-local-path-provisioner) section before deploying this chart.
 
 ## Uninstalling the Chart
 
@@ -41,12 +46,6 @@ helm uninstall netpicker
 | `global.imageRegistry`    | Global Docker image registry                    | `""`              |
 | `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
 | `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"local-storage"` |
-
-### Local Path Provisioner parameters
-
-| Name                           | Description                                  | Value  |
-| ------------------------------ | -------------------------------------------- | ------ |
-| `localPathProvisioner.enabled` | Enable the Local Path Provisioner dependency | `true` |
 
 ### Storage Class parameters
 
@@ -124,15 +123,9 @@ For other parameters, please refer to the values.yaml file.
 
 ### Persistence and Local Storage Provisioning
 
-The Netpicker chart is configured to use local filesystem storage through a dynamic provisioner. By default, it includes Rancher's Local Path Provisioner (`rancher.io/local-path`) as a dependency, which will be automatically installed when you deploy the chart.
+The Netpicker chart is configured to use local filesystem storage through a dynamic provisioner. It requires Rancher's Local Path Provisioner (`rancher.io/local-path`), which should be installed before deploying this chart as described in the [Installing the Local Path Provisioner](#installing-the-local-path-provisioner) section.
 
-If you already have the Local Path Provisioner installed or prefer to install it manually, you can disable the dependency by setting `localPathProvisioner.enabled` to `false`.
-
-To manually install the Local Path Provisioner, you can run:
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
-```
+If you prefer to use a different storage provisioner, you can modify the `storageClass` parameters accordingly.
 
 Other local storage provisioner options include:
 

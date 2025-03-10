@@ -11,7 +11,18 @@ storageClass:
   enabled: true
   name: "local-storage"
   isDefault: true
-  reclaimPolicy: "Retain"
+  # Using local path provisioner for local filesystem storage
+  # Other options for local storage:
+  # - k8s.io/minikube-hostpath for Minikube
+  # - rancher.io/local-path for Rancher's Local Path Provisioner
+  # - openebs.io/local for OpenEBS Local PV
+  provisioner: "rancher.io/local-path"
+  # Parameters specific to the local path provisioner
+  parameters:
+    # No specific parameters needed for basic local-path setup
+  # WaitForFirstConsumer ensures the PV is created on the node where the pod is scheduled
+  volumeBindingMode: "WaitForFirstConsumer"
+  reclaimPolicy: "Delete"
   allowVolumeExpansion: true
   mountOptions:
     - noatime
@@ -201,6 +212,7 @@ syslogng:
 
 # Persistence configuration for shared volumes
 persistence:
+  accessMode: "ReadWriteOnce" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
   config:
     enabled: true
     size: 1Gi

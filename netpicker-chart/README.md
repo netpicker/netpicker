@@ -6,7 +6,7 @@ This Helm chart deploys the Netpicker application on a Kubernetes cluster.
 
 - Kubernetes 1.19+
 - Helm 3.2.0+
-- PV provisioner support in the underlying infrastructure (for persistent volumes)
+- Local Path Provisioner installed on the cluster (or another local storage provisioner)
 
 ## Installing the Chart
 
@@ -38,14 +38,17 @@ helm uninstall netpicker
 
 ### Storage Class parameters
 
-| Name                                | Description                              | Value                   |
-| ----------------------------------- | ---------------------------------------- | ----------------------- |
-| `storageClass.enabled`              | Enable the creation of the storage class | `true`                  |
-| `storageClass.name`                 | Name of the storage class                | `local-storage`         |
-| `storageClass.isDefault`            | Set as the default storage class         | `true`                  |
-| `storageClass.reclaimPolicy`        | Reclaim policy for the storage class     | `Retain`                |
-| `storageClass.allowVolumeExpansion` | Allow volumes to be expanded             | `true`                  |
-| `storageClass.mountOptions`         | Mount options for the storage class      | `[noatime, nodiratime]` |
+| Name                                | Description                                 | Value                   |
+| ----------------------------------- | ------------------------------------------- | ----------------------- |
+| `storageClass.enabled`              | Enable the creation of the storage class    | `true`                  |
+| `storageClass.name`                 | Name of the storage class                   | `local-storage`         |
+| `storageClass.isDefault`            | Set as the default storage class            | `true`                  |
+| `storageClass.provisioner`          | Provisioner for dynamic volume provisioning | `rancher.io/local-path` |
+| `storageClass.parameters`           | Parameters for the provisioner              | `{}`                    |
+| `storageClass.volumeBindingMode`    | Volume binding mode                         | `WaitForFirstConsumer`  |
+| `storageClass.reclaimPolicy`        | Reclaim policy for the storage class        | `Delete`                |
+| `storageClass.allowVolumeExpansion` | Allow volumes to be expanded                | `true`                  |
+| `storageClass.mountOptions`         | Mount options for the storage class         | `[noatime, nodiratime]` |
 
 ### Common parameters
 
@@ -95,11 +98,36 @@ For other image parameters, please refer to the values.yaml file.
 
 For other parameters, please refer to the values.yaml file.
 
+### Persistence parameters
+
+| Name                              | Description                                | Value           |
+| --------------------------------- | ------------------------------------------ | --------------- |
+| `persistence.accessMode`          | Access mode for all PVCs                   | `ReadWriteOnce` |
+| `persistence.config.enabled`      | Enable persistence for config              | `true`          |
+| `persistence.config.size`         | PVC Storage Request for config volume      | `1Gi`           |
+| `persistence.transferium.enabled` | Enable persistence for transferium         | `true`          |
+| `persistence.transferium.size`    | PVC Storage Request for transferium volume | `1Gi`           |
+
 ## Configuration and installation details
 
-### Persistence
+### Persistence and Local Storage Provisioning
 
-The Netpicker chart mounts persistent volumes for various components. The chart supports persistence and uses a PVC to store data.
+The Netpicker chart is configured to use local filesystem storage through a dynamic provisioner. By default, it uses Rancher's Local Path Provisioner (`rancher.io/local-path`), which needs to be installed on your cluster before deploying this chart.
+
+To install the Local Path Provisioner, you can run:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+```
+
+Other local storage provisioner options include:
+
+- `k8s.io/minikube-hostpath` for Minikube
+- `openebs.io/local` for OpenEBS Local PV
+
+The `WaitForFirstConsumer` volume binding mode ensures that volumes are created on the nodes where the pods are scheduled, which is important for local storage.
+
+All persistent volume claims are configured to use the `ReadWriteOnce` access mode by default, which is compatible with local storage. This can be changed by setting the `persistence.accessMode` parameter.
 
 ### Ingress
 

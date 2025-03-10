@@ -1,0 +1,91 @@
+{{- if .Values.kibbitzer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.kibbitzer.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibbitzer
+    netpicker.io: service
+    service.netpicker.io: kibbitzer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: kibbitzer
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kibbitzer
+        netpicker.io: service
+        service.netpicker.io: kibbitzer
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: kibbitzer
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.kibbitzer) }}
+          imagePullPolicy: {{ .Values.images.kibbitzer.pullPolicy }}
+          env:
+            - name: LOG_LEVEL
+              value: {{ .Values.kibbitzer.logLevel | quote }}
+            - name: SHENV_API_URL
+              value: {{ .Values.kibbitzer.apiUrl | quote }}
+            - name: SHENV_API_TIMEOUT
+              value: {{ .Values.kibbitzer.apiTimeout | quote }}
+            - name: SHENV_PRIVILEGED_PLATFORMS
+              value: {{ .Values.kibbitzer.privilegedPlatforms | quote }}
+            {{- range $platform, $command := .Values.kibbitzer.showRunCommands }}
+            - name: SHENV_SHOW_RUN_{{ $platform }}
+              value: {{ $command | quote }}
+            {{- end }}
+            {{- range $platform, $command := .Values.kibbitzer.tagShowRunCommands }}
+            - name: SHENV_TAG_SHOW_RUN_{{ $platform }}
+              value: {{ $command | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "netpicker.fullname" . }}-tag-params
+          ports:
+            - name: kibbitzer
+              containerPort: 9696
+              protocol: TCP
+          volumeMounts:
+            - name: secret
+              mountPath: /run/secrets
+          livenessProbe:
+            tcpSocket:
+              port: 9696
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 9696
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.kibbitzer.resources | nindent 12 }}
+      volumes:
+        - name: secret
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.kibbitzer.fullname" . }}-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.kibbitzer.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibbitzer
+spec:
+  type: {{ .Values.kibbitzer.service.type }}
+  ports:
+    - port: 9696
+      targetPort: kibbitzer
+      protocol: TCP
+      name: kibbitzer
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: kibbitzer
+{{- end }} 

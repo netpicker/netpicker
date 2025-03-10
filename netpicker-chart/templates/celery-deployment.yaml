@@ -1,0 +1,57 @@
+{{- if .Values.celery.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.celery.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery
+    netpicker.io: service
+    service.netpicker.io: celery
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: celery
+        netpicker.io: service
+        service.netpicker.io: celery
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: celery
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
+          imagePullPolicy: {{ .Values.images.api.pullPolicy }}
+          command: ["/run-celery"]
+          env:
+            - name: alembic_version
+              value: {{ .Values.api.alembicVersion | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.celery.logLevel | quote }}
+            - name: UVICORN_ROOT_PATH
+              value: {{ .Values.api.uvicornRootPath | quote }}
+            - name: CELERY_BROKER_URL
+              value: "redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }}"
+          volumeMounts:
+            - name: policy-data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - CELERY_BROKER_URL=redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }} celery inspect ping -t 5
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.celery.resources | nindent 12 }}
+      volumes:
+        - name: policy-data
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.api.fullname" . }}-data
+{{- end }} 

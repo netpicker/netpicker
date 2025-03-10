@@ -1,0 +1,75 @@
+{{- if .Values.syslogng.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.syslogng.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: syslogng
+    netpicker.io: service
+    service.netpicker.io: syslog-ng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: syslogng
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: syslogng
+        netpicker.io: service
+        service.netpicker.io: syslog-ng
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: syslogng
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.syslogng) }}
+          imagePullPolicy: {{ .Values.images.syslogng.pullPolicy }}
+          ports:
+            - name: syslog-udp
+              containerPort: 514
+              protocol: UDP
+            - name: syslog-tcp
+              containerPort: 601
+              protocol: TCP
+            - name: syslog-tls
+              containerPort: 6614
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/syslog-ng
+          resources:
+            {{- toYaml .Values.syslogng.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.syslogng.fullname" . }}-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.syslogng.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: syslogng
+spec:
+  type: {{ .Values.syslogng.service.type }}
+  ports:
+    - port: {{ .Values.syslogng.service.udpPort }}
+      targetPort: syslog-udp
+      protocol: UDP
+      name: syslog-udp
+    - port: {{ .Values.syslogng.service.tcpPort }}
+      targetPort: syslog-tcp
+      protocol: TCP
+      name: syslog-tcp
+    - port: {{ .Values.syslogng.service.tlsPort }}
+      targetPort: syslog-tls
+      protocol: TCP
+      name: syslog-tls
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: syslogng
+{{- end }} 

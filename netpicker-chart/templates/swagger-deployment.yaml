@@ -1,0 +1,55 @@
+{{- if .Values.swagger.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.swagger.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: swagger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: swagger
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: swagger
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: swagger
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.swagger) }}
+          imagePullPolicy: {{ .Values.images.swagger.pullPolicy }}
+          env:
+            - name: SWAGGER_JSON_URL
+              value: "/openapi.json"
+            - name: TRY_IT_OUT_ENABLED
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.swagger.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.swagger.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: swagger
+spec:
+  type: {{ .Values.swagger.service.type }}
+  ports:
+    - port: {{ .Values.swagger.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: swagger
+{{- end }} 

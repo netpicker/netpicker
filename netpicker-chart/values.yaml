@@ -1,6 +1,10 @@
 # Default values for netpicker chart
 # This is a YAML-formatted file.
 
+# Local Path Provisioner configuration
+localPathProvisioner:
+  enabled: true
+
 global:
   imageRegistry: "docker.io"
   imagePullSecrets: []

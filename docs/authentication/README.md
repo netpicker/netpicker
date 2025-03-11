@@ -98,34 +98,14 @@ Netpicker supports the following authentication providers:
 
 4. **Update the `docker-compose.override.yml` file** with your configuration:
 
-   - Set the `AUTH_BACKEND` environment variable to your chosen provider (`ldap`, `saml`, or `oauth`)
+   - Set the `AUTH_BACKEND` environment variable to your chosen provider (`ldap`, `saml`, or `netyce_alchemy` for OAuth)
    - Add the configuration for your selected provider
-
-   Example:
-
-   ```yaml
-   services:
-     api:
-       environment:
-         AUTH_BACKEND: saml
-         SAML: "{ ... SAML configuration ... }"
-   ```
 
 5. **Restart the Netpicker services** to apply the changes.
 
 6. **Test the authentication** to ensure it's working as expected.
 
-**Note**: Netpicker only supports one authentication provider at a time. You must choose one provider by setting the `AUTH_BACKEND` environment variable to either `ldap`, `saml`, or `oauth` in your `docker-compose.override.yml` file.
-
-Example:
-
-```yaml
-services:
-  api:
-    environment:
-      AUTH_BACKEND: saml
-      SAML: "{ ... SAML configuration ... }"
-```
+**Note**: Netpicker only supports one authentication provider at a time.
 
 ## Troubleshooting
 

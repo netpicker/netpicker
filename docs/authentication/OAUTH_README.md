@@ -4,8 +4,6 @@
 
 OAuth 2.0 is an industry-standard protocol for authorization that enables third-party applications to obtain limited access to a user account. This guide explains how to configure OAuth authentication in Netpicker, with a focus on Azure AD integration.
 
-**Important**: To enable OAuth authentication, you must set the `AUTH_BACKEND` environment variable to `netyce_alchemy` in your `docker-compose.override.yml` file.
-
 ## Configuration Parameters
 
 The OAuth configuration is defined in the `docker-compose.override.yml` file as an environment variable. Here's an explanation of each parameter:
@@ -22,7 +20,6 @@ The OAuth configuration is defined in the `docker-compose.override.yml` file as 
 ## Example Configuration
 
 ```yaml
-# Set AUTH_BACKEND to netyce_alchemy to enable OAuth authentication
 AUTH_BACKEND: netyce_alchemy
 
 OAUTH: '{

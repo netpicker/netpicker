@@ -4,7 +4,7 @@
 
 LDAP (Lightweight Directory Access Protocol) authentication allows Netpicker to authenticate users against your organization's LDAP directory service. This guide explains how to configure LDAP authentication in Netpicker.
 
-**Important**: To enable LDAP authentication, you must set the `AUTH_BACKEND` environment variable to `ldap` in your `docker-compose.override.yml` file.
+**Important**: To enable LDAP authentication, you must set the `AUTH_BACKEND` environment variable to `netyce_alchemy` in your `docker-compose.override.yml` file.
 
 ## Configuration Parameters
 
@@ -25,8 +25,7 @@ The LDAP configuration is defined in the `docker-compose.override.yml` file as a
 ## Example Configuration
 
 ```yaml
-# Set AUTH_BACKEND to ldap to enable LDAP authentication
-AUTH_BACKEND: ldap
+AUTH_BACKEND: netyce_alchemy
 
 LDAP: '{
   "server_uri": "ldaps://ldap.example.com:636",

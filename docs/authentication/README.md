@@ -4,15 +4,13 @@
 
 Netpicker supports multiple authentication providers to integrate with your existing identity management systems. This guide will help you choose and configure the appropriate authentication method for your environment.
 
-**Important Note**: Netpicker only supports one authentication provider at a time. You must select your preferred authentication method by setting the `AUTH_BACKEND` environment variable in your `docker-compose.override.yml` file.
-
 ## Available Authentication Providers
 
 Netpicker supports the following authentication providers:
 
-1. **LDAP** - Lightweight Directory Access Protocol (`AUTH_BACKEND=ldap`)
+1. **LDAP** - Lightweight Directory Access Protocol
 2. **SAML** - Security Assertion Markup Language (`AUTH_BACKEND=saml`)
-3. **OAuth/OpenID Connect** - Including Azure AD, Google, and GitHub (`AUTH_BACKEND=netyce_alchemy`)
+3. **OAuth/OpenID Connect** - Including Azure AD, Google, and GitHub
 
 ## Choosing the Right Authentication Provider
 
@@ -98,7 +96,7 @@ Netpicker supports the following authentication providers:
 
 4. **Update the `docker-compose.override.yml` file** with your configuration:
 
-   - Set the `AUTH_BACKEND` environment variable to your chosen provider (`ldap`, `saml`, or `netyce_alchemy` for OAuth)
+   - Set the `AUTH_BACKEND` environment variable to `saml` in case of SAML
    - Add the configuration for your selected provider
 
 5. **Restart the Netpicker services** to apply the changes.

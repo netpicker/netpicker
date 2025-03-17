@@ -97,6 +97,7 @@ db:
 api:
   enabled: true
   alembicVersion: "8d64b01e52b7"
+  cliProxyHost: "agent"
   logLevel: "INFO"
   uvicornRootPath: "/"
   service:

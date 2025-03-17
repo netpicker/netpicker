@@ -30,6 +30,8 @@ spec:
           env:
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
+            - name: CLI_PROXY_HOST
+              value: {{ .Values.api.cliProxyHost | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.api.logLevel | quote }}
             - name: UVICORN_ROOT_PATH

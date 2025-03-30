@@ -54,4 +54,6 @@ spec:
         - name: policy-data
           persistentVolumeClaim:
             claimName: {{ include "netpicker.api.fullname" . }}-data
-{{- end }} 
+      securityContext:
+        fsGroup: 911
+{{- end }}

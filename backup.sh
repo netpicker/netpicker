@@ -20,7 +20,7 @@ echo "Staging volume data..."
 for VOLUME in $VOLUMES; do
     VOLUME_PATH=$(docker volume inspect "$VOLUME" -f '{{ .Mountpoint }}')
     mkdir -p "$TMP_DIR/$VOLUME"
-    cp -a "$VOLUME_PATH/." "$TMP_DIR/$VOLUME"
+    sudo cp -a "$VOLUME_PATH/." "$TMP_DIR/$VOLUME"
 done
 
 # Create the backup tarball

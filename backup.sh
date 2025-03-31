@@ -19,15 +19,15 @@ TMP_DIR=$(mktemp -d)
 echo "Staging volume data..."
 for VOLUME in $VOLUMES; do
     VOLUME_PATH=$(docker volume inspect "$VOLUME" -f '{{ .Mountpoint }}')
-    mkdir -p "$TMP_DIR/$VOLUME"
+    sudo mkdir -p "$TMP_DIR/$VOLUME"
     sudo cp -a "$VOLUME_PATH/." "$TMP_DIR/$VOLUME"
 done
 
 # Create the backup tarball
 echo "Creating backup archive..."
-tar -cf netpicker_backup.tar -C "$TMP_DIR" .
+sudo tar -cf netpicker_backup.tar -C "$TMP_DIR" .
 
 # Clean up
-rm -rf "$TMP_DIR"
+sudo rm -rf "$TMP_DIR"
 
 echo "Backup completed successfully!"

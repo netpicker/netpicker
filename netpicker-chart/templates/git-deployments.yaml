@@ -62,6 +62,8 @@ spec:
         - name: git
           persistentVolumeClaim:
             claimName: {{ include "netpicker.gitd.fullname" . }}-data
+      securityContext:
+        fsGroup: 911
 ---
 apiVersion: v1
 kind: Service

@@ -59,6 +59,8 @@ spec:
         - name: secret
           persistentVolumeClaim:
             claimName: {{ include "netpicker.agent.fullname" . }}-data
+      securityContext:
+        fsGroup: 911
 ---
 apiVersion: v1
 kind: Service
@@ -77,4 +79,4 @@ spec:
   selector:
     {{- include "netpicker.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: agent
-{{- end }} 
+{{- end }}

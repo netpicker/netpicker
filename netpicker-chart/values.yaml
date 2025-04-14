@@ -192,7 +192,8 @@ agent:
   sharedSshTtl: 180
   service:
     type: ClusterIP
-    port: 8765
+    portVault: 8765
+    portProxy: 9876
   resources: {}
   persistence:
     enabled: true
@@ -213,7 +214,7 @@ syslogng:
 
 # Persistence configuration for shared volumes
 persistence:
-  accessMode: "ReadWriteOnce" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
+  accessMode: "ReadWriteMany" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
   config:
     enabled: true
     size: 1Gi

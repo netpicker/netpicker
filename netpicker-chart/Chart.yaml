@@ -1,0 +1,6 @@
+apiVersion: v2
+name: netpicker
+description: A Helm chart for Netpicker application
+type: application
+version: 0.1.1
+appVersion: "2.1.3"

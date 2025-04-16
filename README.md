@@ -7,5 +7,3 @@ Netpicker is a Python-based testing platform for your network. Check out our web
 ## Documentation
 
 - [Authentication Configuration](docs/authentication/README.md) - Configure LDAP, SAML, or OAuth authentication (note: only one authentication provider can be used at a time by setting the AUTH_BACKEND environment variable)
-
-.

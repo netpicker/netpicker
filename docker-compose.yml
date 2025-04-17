@@ -111,6 +111,8 @@ services:
     environment:
       SWAGGER_JSON_URL: "/openapi.json"
       TRY_IT_OUT_ENABLED: 1
+    ports:
+      - "8080:8080"
     depends_on:
       - api
 

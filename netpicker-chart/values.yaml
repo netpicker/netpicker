@@ -217,9 +217,8 @@ agentsecond:
     #   value: 180 # Adjust if needed
   service:
     type: ClusterIP
-    # Assign unique ports if necessary, or if they need to be exposed differently
-    portVault: 8767 # Different port from the first agent
-    portProxy: 9877 # Different port from the first agent
+    portVault: 8765
+    portProxy: 9876
   resources: {} # Define specific resources if needed
   persistence:
     enabled: true # Assuming it needs its own persistent volume

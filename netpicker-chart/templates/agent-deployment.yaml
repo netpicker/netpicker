@@ -72,10 +72,14 @@ metadata:
 spec:
   type: {{ .Values.agent.service.type }}
   ports:
-    - port: {{ .Values.agent.service.port }}
+    - port: {{ .Values.agent.service.portProxy }}
       targetPort: agent
       protocol: TCP
       name: agent
+    - port: {{ .Values.agent.service.portVault }}
+      targetPort: agent
+      protocol: TCP
+      name: vault
   selector:
     {{- include "netpicker.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: agent

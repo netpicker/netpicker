@@ -72,7 +72,7 @@ helm uninstall netpicker
 | Name                    | Description                | Value           |
 | ----------------------- | -------------------------- | --------------- |
 | `images.api.repository` | API image repository       | `netpicker/api` |
-| `images.api.tag`        | API image tag              | `2.1.3`         |
+| `images.api.tag`        | API image tag              | `2.2`           |
 | `images.api.pullPolicy` | API image pull policy      | `IfNotPresent`  |
 | `images.db.repository`  | Database image repository  | `netpicker/db`  |
 | `images.db.tag`         | Database image tag         | `latest`        |
@@ -97,7 +97,7 @@ For other image parameters, please refer to the values.yaml file.
 | Name                      | Description                                | Value          |
 | ------------------------- | ------------------------------------------ | -------------- |
 | `api.enabled`             | Enable API deployment                      | `true`         |
-| `api.alembicVersion`      | Alembic version                            | `8d64b01e52b7` |
+| `api.alembicVersion`      | Alembic version                            | `3201afd119b9` |
 | `api.logLevel`            | Log level                                  | `INFO`         |
 | `api.uvicornRootPath`     | Uvicorn root path                          | `/`            |
 | `api.service.type`        | Kubernetes Service type                    | `ClusterIP`    |

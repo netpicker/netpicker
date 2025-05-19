@@ -1,0 +1,29 @@
+Value OS_TYPE (.*)
+Value AOS_VERSION (AOS-\d+)
+Value MODEL (\d+)
+Value VERSION ([\d\.]+)
+Value SSR (SSR)
+Value WEBSITE (http.*\.com)
+Value COPYRIGHT (.*)
+Value COMPILED_DATE (\d+-\d+-\d+)
+Value COMPILED_TIME ([\d:]+)
+Value COMPILED_TZ (\w+)
+Value BUILD (\d+)
+Value COMPILED_BY (\w+)
+Value FIPS_MODE (\w+)
+Value UPTIME (.+(?=\nReboot))
+Value REBOOT_DATE (\w+\s+\w+\s+\d+)
+Value REBOOT_TIME ([\d:]+)
+Value REBOOT_TZ (\w+)
+Value REBOOT_YEAR (\d+)
+Value REBOOT_CAUSE (.*)
+
+Start
+  ^HPE Aruba Networking ${OS_TYPE}
+  ^${AOS_VERSION} \(MODEL: ${MODEL}\), Version ${VERSION} ${SSR}
+  ^Website: ${WEBSITE}
+  ^\(c\) Copyright ${COPYRIGHT}
+  ^Compiled on ${COMPILED_DATE} at ${COMPILED_TIME} ${COMPILED_TZ} \(build ${BUILD}\) by ${COMPILED_BY}
+  ^FIPS Mode :${FIPS_MODE}
+  ^AP uptime is ${UPTIME}
+  ^Reboot Time and Cause: AP rebooted ${REBOOT_DATE} ${REBOOT_TIME} ${REBOOT_TZ} ${REBOOT_YEAR}; ${REBOOT_CAUSE} -> Record 

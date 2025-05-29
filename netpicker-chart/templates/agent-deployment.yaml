@@ -37,8 +37,11 @@ spec:
             - configMapRef:
                 name: {{ include "netpicker.fullname" . }}-tag-params
           ports:
-            - name: agent
-              containerPort: 8765
+            - name: vault
+              containerPort: {{ .Values.agent.service.portVault }}
+              protocol: TCP
+            - name: proxy
+              containerPort: {{ .Values.agent.service.portProxy }}
               protocol: TCP
           volumeMounts:
             - name: secret
@@ -73,11 +76,11 @@ spec:
   type: {{ .Values.agent.service.type }}
   ports:
     - port: {{ .Values.agent.service.portProxy }}
-      targetPort: agent
+      targetPort: proxy
       protocol: TCP
-      name: agent
+      name: proxy
     - port: {{ .Values.agent.service.portVault }}
-      targetPort: agent
+      targetPort: vault
       protocol: TCP
       name: vault
   selector:

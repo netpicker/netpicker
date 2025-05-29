@@ -3,4 +3,4 @@ name: netpicker
 description: A Helm chart for Netpicker application
 type: application
 version: 0.1.1
-appVersion: "2.2.7"
+appVersion: "2.2.9"

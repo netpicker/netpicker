@@ -31,7 +31,7 @@ storageClass:
 images:
   api:
     repository: netpicker/api
-    tag: "2.2.7"
+    tag: "2.2.9"
     pullPolicy: IfNotPresent
   db:
     repository: netpicker/db
@@ -43,11 +43,11 @@ images:
     pullPolicy: IfNotPresent
   gitd:
     repository: netpicker/gitd
-    tag: "2.2.7"
+    tag: "2.2.9"
     pullPolicy: IfNotPresent
   gitdctrl:
     repository: netpicker/gitdctrl
-    tag: "2.2.7"
+    tag: "2.2.9"
     pullPolicy: IfNotPresent
   swagger:
     repository: swaggerapi/swagger-ui
@@ -55,19 +55,19 @@ images:
     pullPolicy: IfNotPresent
   frontend:
     repository: netpicker/tester-frontend
-    tag: "2.2.7"
+    tag: "2.2.9"
     pullPolicy: IfNotPresent
   kibbitzer:
     repository: netpicker/kibbitzer
-    tag: "2.2.7"
+    tag: "2.2.9"
     pullPolicy: IfNotPresent
   agent:
     repository: netpicker/agent
-    tag: "2.2.7"
+    tag: "2.2.9"
     pullPolicy: IfNotPresent
   syslogng:
     repository: netpicker/syslog-ng
-    tag: "2.2.7"
+    tag: "2.2.9"
     pullPolicy: IfNotPresent
 
 # Common environment variables
@@ -96,7 +96,7 @@ db:
 # API configuration
 api:
   enabled: true
-  alembicVersion: "960c0e7cbeaa"
+  alembicVersion: "8e416d4b7f23"
   cliProxyHost: "agent"
   logLevel: "INFO"
   uvicornRootPath: "/"

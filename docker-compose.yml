@@ -10,6 +10,7 @@ x-api: &api_common
   image: "netpicker/api:2.2.9"
   environment:
     alembic_version: "8e416d4b7f23"
+    JWT_SECRET: "ew9023cnkljfcnsdlkfsfdhs"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /

@@ -1,4 +1,4 @@
-x-api: &api_common:
+x-api: &api_common
   environment:
     # ALLOWED_ORIGINS: '["*"]' # CORS domains
     # API_URL: http://api:8000  # backend-endpoint with respect to service name and exposed port

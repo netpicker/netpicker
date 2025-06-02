@@ -31,10 +31,10 @@ x-api: &api_common:
 
 services:
   api:
-  <<: *api_common
+    <<: *api_common
 
   celery:
-  <<: *api_common
+    <<: *api_common
 
   gitd:
     environment:

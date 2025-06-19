@@ -36,6 +36,9 @@ services:
   celery:
     <<: *api_common
 
+  kibbitzer:
+    <<: *api_common
+
   #gitd:
     #environment:
       # ENABLE_EXTERNAL_PUSH: "true"

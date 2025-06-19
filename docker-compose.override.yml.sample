@@ -16,7 +16,6 @@ x-api: &api_common
     # INIT_TENANT: 'default'
     # JWT_AUDIENCE: "netpicker"
     # JWT_ALGORITHM: HS256
-    # JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs
     # NETBOX_API: "https://netbox-endpoint/"
     # NETBOX_TOKEN: netbox_token_here
     # PROXY_SSL_VERIFY: 0 # Do not verify any SSL certificate

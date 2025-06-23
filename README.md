@@ -6,4 +6,4 @@ Config backup, security / compliance testing and job automation in one platform.
 
 ## Documentation
 
-- [Authentication Configuration](docs/authentication/README.md) - Configure LDAP, SAML, or OAuth authentication (note: only one authentication provider can be used at a time by setting the AUTH_BACKEND environment variable)
+- [Authentication Configuration](docs/authentication/README.md) - Configure LDAP, SAML, or OAuth authentication

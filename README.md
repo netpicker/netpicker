@@ -1,8 +1,8 @@
 # Netpicker
 
-Test the design, security and compliance of your network
+Advance your network automation with Netpicker
 
-Netpicker is a Python-based testing platform for your network. Check out our website at https://netpicker.io to get started.
+Config backup, security / compliance testing and job automation in one platform. Check out our website at https://netpicker.io to get started.
 
 ## Documentation
 

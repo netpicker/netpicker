@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  api:
+    # Override the API service for development
+    command: sleep infinity
+    environment:
+      - LOG_LEVEL=DEBUG
+      - UVICORN_ROOT_PATH=/
+      - PYTHONPATH=/usr/local/lib/python3.10/site-packages/app
+    volumes:
+      - policy-data:/data
+      - /netpicker/app:/usr/local/lib/python3.10/site-packages/app:cached
+    working_dir: /usr/local/lib/python3.10/site-packages/app
+    # Keep the service running for development
+    tty: true
+    stdin_open: true

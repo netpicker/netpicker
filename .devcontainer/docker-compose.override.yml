@@ -11,7 +11,7 @@ services:
     volumes:
       - policy-data:/data
       - /netpicker/app:/usr/local/lib/python3.10/site-packages/app:cached
-    working_dir: /usr/local/lib/python3.10/site-packages/app
+    working_dir: /netpicker/app
     # Keep the service running for development
     tty: true
     stdin_open: true

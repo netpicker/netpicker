@@ -2,7 +2,7 @@
   "name": "NetPicker Development Environment",
   "dockerComposeFile": ["../docker-compose.yml", "docker-compose.override.yml"],
   "service": "api",
-  "workspaceFolder": "/workspace",
+  "workspaceFolder": "/netpicker/app",
   "shutdownAction": "stopCompose",
 
   "features": {
@@ -97,7 +97,7 @@
   },
 
   "remoteEnv": {
-    "PYTHONPATH": "/workspace",
+    "PYTHONPATH": "/netpicker/app",
     "DOCKER_HOST": "unix:///var/run/docker-host.sock"
   },
 

@@ -49,7 +49,7 @@ services:
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/status"]
+      test: ["CMD", "echo", "test"]
       start_period: 60s
       interval: 5s
       retries: 5

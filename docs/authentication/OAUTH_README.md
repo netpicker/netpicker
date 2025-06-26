@@ -41,7 +41,7 @@ OAUTH: '{
    - Click "New registration"
    - Enter a name for your application (e.g., "Netpicker")
    - Select the appropriate account type (typically "Accounts in this organizational directory only")
-   - Set the redirect URI to `https://your-netpicker-domain.com/api/v1/auth/oauth/callback`
+   - Set the redirect URI to `https://your-netpicker-domain.com/api/v1/auth/oauth2/callback`
    - Click "Register"
 
 2. **Configure Authentication**:
@@ -116,7 +116,7 @@ Configuration steps:
 4. Click "Create Credentials" > "OAuth client ID"
 5. Configure the OAuth consent screen
 6. Create an OAuth client ID for a Web application
-7. Add your redirect URI: `https://your-netpicker-domain.com/api/v1/auth/oauth/callback`
+7. Add your redirect URI: `https://your-netpicker-domain.com/api/v1/auth/oauth2/callback`
 8. Copy the client ID and client secret to your Netpicker configuration
 
 ### GitHub
@@ -142,7 +142,7 @@ Configuration steps:
 2. Navigate to "Developer settings" > "OAuth Apps"
 3. Click "New OAuth App"
 4. Fill in the application details
-5. Set the authorization callback URL to `https://your-netpicker-domain.com/api/v1/auth/oauth/callback`
+5. Set the authorization callback URL to `https://your-netpicker-domain.com/api/v1/auth/oauth2/callback`
 6. Register the application
 7. Copy the client ID and generate a client secret
 8. Update your Netpicker configuration
@@ -154,7 +154,7 @@ If you encounter issues with OAuth authentication:
 1. **Check Redirect URIs**:
 
    - Ensure the redirect URI in your OAuth provider matches the one expected by Netpicker
-   - The default callback path is `/api/v1/auth/oauth/callback`
+   - The default callback path is `/api/v1/auth/oauth2/callback`
 
 2. **Verify Scopes**:
 

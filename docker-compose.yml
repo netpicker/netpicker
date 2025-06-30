@@ -1,3 +1,5 @@
+version: "3.7"
+
 x-tag-params: &tag-params
   TAG_CONN_PARAMS: '{
     "xslow":{"timeout":120,"conn_timeout":30,"read_timeout_override":30,"fast_cli":false,"keepalive":5},
@@ -5,9 +7,10 @@ x-tag-params: &tag-params
     }'
 
 x-api: &api_common
-  image: "netpicker/api:2.3.1"
+  image: "netpicker/api:2.3.2"
   environment:
     alembic_version: "db7451525ac3"
+    JWT_SECRET: "ew9023cnkljfcnsdlkfsfdhs"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
@@ -66,11 +69,7 @@ services:
       service.netpicker.io: celery
     command: /run-celery
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5",
-        ]
+      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5"]
       start_period: 15s
       interval: 30s
 
@@ -81,13 +80,13 @@ services:
       netpicker.io: service
     volumes:
       - redis:/data
-    command: "--save 60 1 --loglevel warning"
+    command: '--save 60 1 --loglevel warning'
     restart: on-failure
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
   gitd:
-    image: "netpicker/gitd:2.3.1"
+    image: "netpicker/gitd:2.3.2"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -96,7 +95,7 @@ services:
       - git:/git
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.3.1"
+    image: "netpicker/gitdctrl:2.3.2"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -119,7 +118,7 @@ services:
       - api
 
   frontend:
-    image: "netpicker/tester-frontend:2.3.1"
+    image: "netpicker/tester-frontend:2.3.2"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -130,7 +129,7 @@ services:
       - api
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.3.1"
+    image: "netpicker/kibbitzer:2.3.2"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -141,14 +140,14 @@ services:
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
       SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"
-      SHENV_SHOW_RUN_aruba_os: "show configuration"
-      SHENV_SHOW_RUN_corvil: "show config"
-      SHENV_SHOW_RUN_gigamon: "show running"
-      SHENV_SHOW_RUN_meinberg: "generate_config_backup && cat /var/tmp/lantime_config.backup"
+      SHENV_SHOW_RUN_aruba_os: 'show configuration'
+      SHENV_SHOW_RUN_corvil: 'show config'
+      SHENV_SHOW_RUN_gigamon: 'show running'
+      SHENV_SHOW_RUN_meinberg: 'generate_config_backup && cat /var/tmp/lantime_config.backup'
       SHENV_SHOW_RUN_mikrotik_routeros: "export"
-      SHENV_SHOW_RUN_nokia_srl: "info"
+      SHENV_SHOW_RUN_nokia_srl: 'info'
       SHENV_SHOW_RUN_paloalto_panos: "show config running"
-      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: "export show-sensitive"
+      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: 'export show-sensitive'
     healthcheck:
       test: echo "ping Mac\n" | nc -v 127.0.0.1 9696
       start_period: 15s
@@ -162,14 +161,14 @@ services:
 
   agent:
     hostname: agent
-    image: "netpicker/agent:2.3.1"
+    image: "netpicker/agent:2.3.2"
     container_name: agent
     labels:
       netpicker.io: service
       service.netpicker.io: agent
     environment:
       <<: *tag-params
-      CLI_PROXY_ADDR: "0.0.0.0"
+      CLI_PROXY_ADDR: '0.0.0.0'
       # CLI_TRACE_DIR: /tmp/trace-cli
       # DEDICATED_CONNECTIONS: 1
       # SHENV_JUMP_HOST: '192.168.60.3'
@@ -186,7 +185,7 @@ services:
       interval: 10s
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.3.1"
+    image: "netpicker/syslog-ng:2.3.2"
     container_name: syslog-ng
     labels:
       netpicker.io: service

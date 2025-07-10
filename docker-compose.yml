@@ -115,7 +115,7 @@ services:
       - api
 
   frontend:
-    image: "netpicker/tester-frontend:2.3.2"
+    image: "netpicker/tester-frontend:2.3.4"
     container_name: frontend
     labels:
       netpicker.io: service

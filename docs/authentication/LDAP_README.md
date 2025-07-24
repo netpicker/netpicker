@@ -11,6 +11,7 @@ The LDAP configuration is defined in the `docker-compose.override.yml` file as a
 | Parameter         | Description                                                                                       |
 | ----------------- | ------------------------------------------------------------------------------------------------- |
 | `server_uri`      | The URI of your LDAP server, including protocol (ldap:// or ldaps://) and port                    |
+| `options`         | LDAP connection options                                                                           |
 | `dc`              | The domain component of your LDAP directory                                                       |
 | `principal`       | An array containing the bind DN and password for accessing the LDAP directory                     |
 | `search_base`     | The base DN where user searches will be performed                                                 |
@@ -27,6 +28,12 @@ AUTH_BACKEND: netyce_alchemy
 
 LDAP: '{
   "server_uri": "ldaps://ldap.example.com:636",
+  "options": [
+    ("OPT_REFERRALS", "OPT_OFF"),
+    ("OPT_X_TLS_REQUIRE_CERT", "OPT_X_TLS_NEVER"),
+    ("OPT_X_TLS_DEMAND", "OPT_ON"),
+    ("OPT_X_TLS_NEWCTX", "OPT_OFF"),
+  ],
   "dc": "dc=example,dc=com",
   "principal": ["cn=admin,dc=example,dc=com", "YourAdminPassword"],
   "search_base": "ou=people,dc=example,dc=com",

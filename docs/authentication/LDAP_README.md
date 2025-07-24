@@ -29,10 +29,10 @@ AUTH_BACKEND: netyce_alchemy
 LDAP: '{
   "server_uri": "ldaps://ldap.example.com:636",
   "options": [
-    ("OPT_REFERRALS", "OPT_OFF"),
-    ("OPT_X_TLS_REQUIRE_CERT", "OPT_X_TLS_NEVER"),
-    ("OPT_X_TLS_DEMAND", "OPT_ON"),
-    ("OPT_X_TLS_NEWCTX", "OPT_OFF"),
+    ["OPT_REFERRALS", "OPT_OFF"],
+    ["OPT_X_TLS_REQUIRE_CERT", "OPT_X_TLS_NEVER"],
+    ["OPT_X_TLS_DEMAND", "OPT_ON"],
+    ["OPT_X_TLS_NEWCTX", "OPT_OFF"]
   ],
   "dc": "dc=example,dc=com",
   "principal": ["cn=admin,dc=example,dc=com", "YourAdminPassword"],

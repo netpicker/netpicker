@@ -14,31 +14,38 @@ x-api: &api_common
   volumes:
     - policy-data:/data
   depends_on:
-    redis:
-      condition: service_healthy
     db:
       condition: service_healthy
     gitd:
       condition: service_started
     gitdctrl:
       condition: service_healthy
+    redis:
+      condition: service_healthy
 
 services:
-  db:
-    image: netpicker/db
-    container_name: db
+  agent:
+    hostname: agent
+    image: "netpicker/agent:2.4.0-rc"
+    container_name: agent
     labels:
       netpicker.io: service
+      service.netpicker.io: agent
     environment:
-      POSTGRES_PASSWORD: s3rgts0p!
+      <<: *tag-params
+      CLI_PROXY_ADDR: '0.0.0.0'
+      SHARED_SSH_TTL: 180
+      NO_PROXY: "api,frontend"
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - secret:/run/secrets
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U netpicker"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 80s
+      test: "echo LST | nc -v 127.0.0.1 8765"
+      start_period: 12s
+      interval: 10s
 
   api:
     <<: *api_common
@@ -70,17 +77,34 @@ services:
       start_period: 15s
       interval: 30s
 
-  redis:
-    image: redis:7-alpine
-    container_name: redis
+  db:
+    image: netpicker/db
+    container_name: db
     labels:
       netpicker.io: service
+    environment:
+      POSTGRES_PASSWORD: s3rgts0p!
     volumes:
-      - redis:/data
-    command: '--save 60 1 --loglevel warning'
-    restart: on-failure
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "pg_isready -U netpicker"]
+      interval: 30s
+      timeout: 60s
+      retries: 5
+      start_period: 80s
+
+
+  frontend:
+    image: "netpicker/tester-frontend:2.4.0-rc"
+    container_name: frontend
+    labels:
+      netpicker.io: service
+      service.netpicker.io: front-end
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
 
   gitd:
     image: "netpicker/gitd:2.4.0-rc"
@@ -90,6 +114,7 @@ services:
       service.netpicker.io: gitd
     volumes:
       - git:/git
+
 
   gitdctrl:
     image: "netpicker/gitdctrl:2.4.0-rc"
@@ -105,25 +130,6 @@ services:
       interval: 5s
     restart: unless-stopped
 
-  swagger:
-    image: swaggerapi/swagger-ui
-    container_name: swagger
-    environment:
-      SWAGGER_JSON_URL: "/openapi.json"
-      TRY_IT_OUT_ENABLED: 1
-    depends_on:
-      - api
-
-  frontend:
-    image: "netpicker/tester-frontend:2.4.0-rc"
-    container_name: frontend
-    labels:
-      netpicker.io: service
-      service.netpicker.io: front-end
-    ports:
-      - "80:80"
-    depends_on:
-      - api
 
   kibbitzer:
     image: "netpicker/kibbitzer:2.4.0-rc"
@@ -151,35 +157,33 @@ services:
       interval: 30s
     volumes:
       - secret:/run/secrets
+      - kibbitzer:/celery-worker
       - ./textfsm:/textfsm
     depends_on:
       - api
       - redis
 
-  agent:
-    hostname: agent
-    image: "netpicker/agent:2.4.0-rc"
-    container_name: agent
+  redis:
+    image: redis:7-alpine
+    container_name: redis
     labels:
       netpicker.io: service
-      service.netpicker.io: agent
-    environment:
-      <<: *tag-params
-      CLI_PROXY_ADDR: '0.0.0.0'
-      # CLI_TRACE_DIR: /tmp/trace-cli
-      # DEDICATED_CONNECTIONS: 1
-      # SHENV_JUMP_HOST: '192.168.60.3'
-      SHARED_SSH_TTL: 180
     volumes:
-      - secret:/run/secrets
-    restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
+      - redis:/data
+    command: '--save 60 1 --loglevel warning'
+    restart: on-failure
     healthcheck:
-      test: "echo LST | nc -v 127.0.0.1 8765"
-      start_period: 12s
-      interval: 10s
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+
+
+  swagger:
+    image: swaggerapi/swagger-ui
+    container_name: swagger
+    environment:
+      SWAGGER_JSON_URL: "/openapi.json"
+      TRY_IT_OUT_ENABLED: 1
+    depends_on:
+      - api
 
   syslog-ng:
     image: "netpicker/syslog-ng:2.4.0-rc"
@@ -199,6 +203,7 @@ services:
 volumes:
   config:
   git:
+  kibbitzer:
   pg_data:
   policy-data:
   redis:

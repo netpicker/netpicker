@@ -1,6 +1,6 @@
 {{- if .Values.db.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "netpicker.db.fullname" . }}
   labels:
@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/component: database
     netpicker.io: service
 spec:
+  serviceName: {{ include "netpicker.db.fullname" . }}
   replicas: 1
   selector:
     matchLabels:
@@ -56,10 +57,26 @@ spec:
             timeoutSeconds: 5
           resources:
             {{- toYaml .Values.db.resources | nindent 12 }}
+  {{- if .Values.db.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "netpicker.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.db.persistence.size }}
+  {{- else }}
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.db.fullname" . }}-data
+          emptyDir: {}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service

@@ -36,24 +36,7 @@ spec:
 ---
 {{- end }}
 
-{{- if and .Values.db.enabled .Values.db.persistence.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "netpicker.db.fullname" . }}-data
-  labels:
-    {{- include "netpicker.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
-  {{- if .Values.global.storageClass }}
-  storageClassName: {{ .Values.global.storageClass }}
-  {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.db.persistence.size }}
----
-{{- end }}
+
 
 {{- if and .Values.redis.enabled .Values.redis.persistence.enabled }}
 apiVersion: v1

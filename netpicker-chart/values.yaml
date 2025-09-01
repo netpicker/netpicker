@@ -134,8 +134,9 @@ gitd:
     enabled: true
     size: 20Gi
   service:
-    type: ClusterIP
+    type: NodePort
     port: 9418
+    nodePort: 30918 # Optional: specify a specific NodePort (30000-32767 range)
   resources: {}
 
 # Git daemon control configuration

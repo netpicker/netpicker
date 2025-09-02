@@ -26,7 +26,6 @@ services:
       netpicker.io: service
       service.netpicker.io: agent
     environment:
-      <<: *tag-params
       CLI_PROXY_ADDR: '0.0.0.0'
       SHARED_SSH_TTL: 180
       NO_PROXY: "api,frontend"

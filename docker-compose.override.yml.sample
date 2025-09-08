@@ -39,8 +39,6 @@ services:
     <<: *api_common
 
   #gitd:
-    #ports:
-      #- 9418:9418
     #environment:
       # ENABLE_EXTERNAL_PUSH: "true"
       # EXTERNAL_GIT_MAPPINGS: '{"rules/default.git": "https://github.com/netpicker/rules-default.git", "configs/default.git": "https://github.com/netpicker/configs-default.git"}'

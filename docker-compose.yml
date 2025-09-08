@@ -105,6 +105,8 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: gitd
+    #ports:
+      #- 9418:9418
     volumes:
       - git:/git
 

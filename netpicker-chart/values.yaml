@@ -39,7 +39,7 @@ images:
     pullPolicy: IfNotPresent
   redis:
     repository: redis
-    tag: "7-alpine"
+    tag: "redis:7-alpine3.21"
     pullPolicy: IfNotPresent
   gitd:
     repository: netpicker/gitd

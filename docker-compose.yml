@@ -1,5 +1,5 @@
 x-api: &api_common
-  image: "netpicker/api:2.4.1"
+  image: "netpicker/api:latest"
   environment:
     alembic_version: "0cc73ffe1fc9"
     CLI_PROXY_HOST: agent
@@ -20,13 +20,12 @@ x-api: &api_common
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:2.4.1"
+    image: "netpicker/agent:latest"
     container_name: agent
     labels:
       netpicker.io: service
       service.netpicker.io: agent
     environment:
-      <<: *tag-params
       CLI_PROXY_ADDR: '0.0.0.0'
       SHARED_SSH_TTL: 180
       NO_PROXY: "api,frontend"
@@ -89,7 +88,7 @@ services:
 
 
   frontend:
-    image: "netpicker/tester-frontend:2.4.1"
+    image: "netpicker/tester-frontend:latest"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -101,7 +100,7 @@ services:
 
 
   gitd:
-    image: "netpicker/gitd:2.4.1"
+    image: "netpicker/gitd:latest"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -113,7 +112,7 @@ services:
 
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.4.1"
+    image: "netpicker/gitdctrl:latest"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -128,13 +127,13 @@ services:
 
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.4.1"
+    image: "netpicker/kibbitzer:latest"
     container_name: kibbitzer
     labels:
       netpicker.io: service
       service.netpicker.io: kibbitzer
     environment:
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
       SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"
@@ -181,7 +180,7 @@ services:
       - api
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.4.1"
+    image: "netpicker/syslog-ng:latest"
     container_name: syslog-ng
     labels:
       netpicker.io: service

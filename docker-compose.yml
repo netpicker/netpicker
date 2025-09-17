@@ -1,11 +1,5 @@
-x-tag-params: &tag-params
-  TAG_CONN_PARAMS: '{
-    "xslow":{"timeout":120,"conn_timeout":30,"read_timeout_override":30,"fast_cli":false,"keepalive":5},
-    "slow-cli": {"fast_cli": false}
-    }'
-
 x-api: &api_common
-  image: "netpicker/api:2.4.0"
+  image: "netpicker/api:2.4.1-rc"
   environment:
     alembic_version: "0cc73ffe1fc9"
     CLI_PROXY_HOST: agent
@@ -26,7 +20,7 @@ x-api: &api_common
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:2.4.0"
+    image: "netpicker/agent:2.4.1-rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -95,7 +89,7 @@ services:
 
 
   frontend:
-    image: "netpicker/tester-frontend:2.4.0"
+    image: "netpicker/tester-frontend:2.4.1-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -107,17 +101,19 @@ services:
 
 
   gitd:
-    image: "netpicker/gitd:2.4.0"
+    image: "netpicker/gitd:2.4.1-rc"
     container_name: gitd
     labels:
       netpicker.io: service
       service.netpicker.io: gitd
+    #ports:
+      #- 9418:9418
     volumes:
       - git:/git
 
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.4.0"
+    image: "netpicker/gitdctrl:2.4.1-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -132,13 +128,12 @@ services:
 
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.4.0"
+    image: "netpicker/kibbitzer:2.4.1-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
       service.netpicker.io: kibbitzer
     environment:
-      <<: *tag-params
       LOG_LEVEL: DEBUG
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
@@ -186,7 +181,7 @@ services:
       - api
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.4.0"
+    image: "netpicker/syslog-ng:2.4.1-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service

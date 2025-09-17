@@ -26,7 +26,6 @@ services:
       netpicker.io: service
       service.netpicker.io: agent
     environment:
-      <<: *tag-params
       CLI_PROXY_ADDR: '0.0.0.0'
       SHARED_SSH_TTL: 180
       NO_PROXY: "api,frontend"
@@ -134,7 +133,7 @@ services:
       netpicker.io: service
       service.netpicker.io: kibbitzer
     environment:
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
       SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"

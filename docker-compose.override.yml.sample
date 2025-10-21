@@ -27,6 +27,7 @@ x-api: &api_common
     # SLURPIT_URL: "https://slurpit-endpoint/"
     # WORKDIR_VOLUME_PATH: /data/policy-workdir
     # CVE_LIST_V5_REPO_URI: 'https://github.com/CVEProject/cvelistv5.git'
+    # CVE_IMPORT_YEARS: '["2025", "2024"]'
 
 services:
   api:

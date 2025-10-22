@@ -7,6 +7,7 @@ x-api: &api_common
     # DB_URI: "postgresql+asyncpg://netpicker:netpicker@db/netpicker"  # Async Pg connection string (API)
     # CELERY_BROKER_URL: redis://redis
     # CELERY_RESULT_BACKEND: redis://redis
+    # CELERY_CONCURRENCY: 16
     # CLI_PROXY_HOST: agent
     # ENABLE_AUDIT_LOGGING: 1 # Enables audit logging for user actions in the API including POST body content
     # GIT_REPO_MANAGER: '["gitd",9419]'

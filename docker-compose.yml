@@ -153,6 +153,7 @@ services:
       - secret:/run/secrets
       - kibbitzer:/celery-worker
       - ./textfsm:/textfsm
+      - ./custom/fortinet.py:/usr/local/lib/python3.11/site-packages/kopimiko/platforms/fortinet.py
     depends_on:
       - api
       - redis

@@ -31,7 +31,7 @@ storageClass:
 images:
   api:
     repository: netpicker/api
-    tag: "2.4.1"
+    tag: "2.5.0"
     pullPolicy: IfNotPresent
   db:
     repository: netpicker/db
@@ -43,11 +43,11 @@ images:
     pullPolicy: IfNotPresent
   gitd:
     repository: netpicker/gitd
-    tag: "2.4.1"
+    tag: "2.5.0"
     pullPolicy: IfNotPresent
   gitdctrl:
     repository: netpicker/gitdctrl
-    tag: "2.4.1"
+    tag: "2.5.0"
     pullPolicy: IfNotPresent
   swagger:
     repository: swaggerapi/swagger-ui
@@ -55,19 +55,19 @@ images:
     pullPolicy: IfNotPresent
   frontend:
     repository: netpicker/tester-frontend
-    tag: "2.4.1"
+    tag: "2.5.0"
     pullPolicy: IfNotPresent
   kibbitzer:
     repository: netpicker/kibbitzer
-    tag: "2.4.1"
+    tag: "2.5.0"
     pullPolicy: IfNotPresent
   agent:
     repository: netpicker/agent
-    tag: "2.4.1"
+    tag: "2.5.0"
     pullPolicy: IfNotPresent
   syslogng:
     repository: netpicker/syslog-ng
-    tag: "2.4.1"
+    tag: "2.5.0"
     pullPolicy: IfNotPresent
 
 # Common environment variables

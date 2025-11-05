@@ -1,7 +1,7 @@
 x-api: &api_common
   image: "netpicker/api:2.5.1-rc"
   environment:
-    alembic_version: "0cc73ffe1fc9"
+    alembic_version: "2f3078078960"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /

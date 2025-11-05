@@ -26,12 +26,12 @@ services:
       netpicker.io: service
       service.netpicker.io: agent
     environment:
-      CLI_PROXY_ADDR: '0.0.0.0'
+      CLI_PROXY_ADDR: "0.0.0.0"
       SHARED_SSH_TTL: 180
       NO_PROXY: "api,frontend"
     volumes:
       - secret:/run/secrets
-    restart: unless-stopped
+    restart: always
     depends_on:
       api:
         condition: service_healthy
@@ -46,11 +46,17 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: api
-    restart: unless-stopped
+    restart: always
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/api/v1/status').raise_for_status()"]
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import requests; requests.get('http://localhost:8000/api/v1/status').raise_for_status()",
+        ]
       start_period: 60s
       interval: 5s
       retries: 5
@@ -65,10 +71,14 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: celery
-    restart: unless-stopped
+    restart: always
     command: /run-celery
     healthcheck:
-      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5"]
+      test:
+        [
+          "CMD-SHELL",
+          "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5",
+        ]
       start_period: 15s
       interval: 30s
 
@@ -81,7 +91,7 @@ services:
       POSTGRES_PASSWORD: s3rgts0p!
     volumes:
       - pg_data:/var/lib/postgresql/data
-    restart: unless-stopped
+    restart: always
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U netpicker"]
       interval: 30s
@@ -89,19 +99,17 @@ services:
       retries: 5
       start_period: 80s
 
-
   frontend:
     image: "netpicker/tester-frontend:2.5.1"
     container_name: frontend
     labels:
       netpicker.io: service
       service.netpicker.io: front-end
-    restart: unless-stopped
+    restart: always
     ports:
       - "80:80"
     depends_on:
       - api
-
 
   gitd:
     image: "netpicker/gitd:2.5.1"
@@ -109,12 +117,11 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: gitd
-    restart: unless-stopped
+    restart: always
     #ports:
-      #- 9418:9418
+    #- 9418:9418
     volumes:
       - git:/git
-
 
   gitdctrl:
     image: "netpicker/gitdctrl:2.5.1"
@@ -128,8 +135,7 @@ services:
       test: echo "PING" | nc -v localhost 9419
       start_period: 5s
       interval: 5s
-    restart: unless-stopped
-
+    restart: always
 
   kibbitzer:
     image: "netpicker/kibbitzer:2.5.1"
@@ -142,14 +148,14 @@ services:
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
       SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"
-      SHENV_SHOW_RUN_aruba_os: 'show configuration'
-      SHENV_SHOW_RUN_corvil: 'show config'
-      SHENV_SHOW_RUN_gigamon: 'show running'
-      SHENV_SHOW_RUN_meinberg: 'generate_config_backup && cat /var/tmp/lantime_config.backup'
+      SHENV_SHOW_RUN_aruba_os: "show configuration"
+      SHENV_SHOW_RUN_corvil: "show config"
+      SHENV_SHOW_RUN_gigamon: "show running"
+      SHENV_SHOW_RUN_meinberg: "generate_config_backup && cat /var/tmp/lantime_config.backup"
       SHENV_SHOW_RUN_mikrotik_routeros: "export"
-      SHENV_SHOW_RUN_nokia_srl: 'info'
+      SHENV_SHOW_RUN_nokia_srl: "info"
       SHENV_SHOW_RUN_paloalto_panos: "show config running"
-      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: 'export show-sensitive'
+      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: "export show-sensitive"
     healthcheck:
       test: echo "ping Mac\n" | nc -v 127.0.0.1 9696
       start_period: 15s
@@ -158,7 +164,7 @@ services:
       - secret:/run/secrets
       - kibbitzer:/celery-worker
       - ./textfsm:/textfsm
-    restart: unless-stopped
+    restart: always
     depends_on:
       - api
       - redis
@@ -170,11 +176,10 @@ services:
       netpicker.io: service
     volumes:
       - redis:/data
-    command: '--save 60 1 --loglevel warning'
-    restart: on-failure
+    command: "--save 60 1 --loglevel warning"
+    restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
-
 
   swagger:
     image: swaggerapi/swagger-ui
@@ -182,7 +187,7 @@ services:
     environment:
       SWAGGER_JSON_URL: "/openapi.json"
       TRY_IT_OUT_ENABLED: 1
-    restart: unless-stopped
+    restart: always
     depends_on:
       - api
 
@@ -198,7 +203,7 @@ services:
       - 6514:6614/tcp
     volumes:
       - syslog:/var/lib/syslog-ng
-    restart: unless-stopped
+    restart: always
     depends_on:
       - agent
 

@@ -72,7 +72,7 @@ helm uninstall netpicker
 | Name                    | Description                | Value           |
 | ----------------------- | -------------------------- | --------------- |
 | `images.api.repository` | API image repository       | `netpicker/api` |
-| `images.api.tag`        | API image tag              | `2.5.1`         |
+| `images.api.tag`        | API image tag              | `2.5.2`         |
 | `images.api.pullPolicy` | API image pull policy      | `IfNotPresent`  |
 | `images.db.repository`  | Database image repository  | `netpicker/db`  |
 | `images.db.tag`         | Database image tag         | `latest`        |

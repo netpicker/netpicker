@@ -1,5 +1,5 @@
 x-api: &api_common
-  image: "netpicker/api:2.5.2"
+  image: "netpicker/api:2.5.2-rc"
   environment:
     alembic_version: "a1b2c3d4e5f6"
     CLI_PROXY_HOST: agent
@@ -20,7 +20,7 @@ x-api: &api_common
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:2.5.2"
+    image: "netpicker/agent:2.5.2-rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -31,7 +31,7 @@ services:
       NO_PROXY: "api,frontend"
     volumes:
       - secret:/run/secrets
-    restart: unless-stopped
+    restart: always
     depends_on:
       api:
         condition: service_healthy
@@ -46,7 +46,7 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: api
-    restart: unless-stopped
+    restart: always
     ports:
       - "8000:8000"
     healthcheck:
@@ -65,7 +65,7 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: celery
-    restart: unless-stopped
+    restart: always
     command: /run-celery
     healthcheck:
       test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5"]
@@ -81,7 +81,7 @@ services:
       POSTGRES_PASSWORD: s3rgts0p!
     volumes:
       - pg_data:/var/lib/postgresql/data
-    restart: unless-stopped
+    restart: always
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U netpicker"]
       interval: 30s
@@ -91,12 +91,12 @@ services:
 
 
   frontend:
-    image: "netpicker/tester-frontend:2.5.2"
+    image: "netpicker/tester-frontend:2.5.2-rc"
     container_name: frontend
     labels:
       netpicker.io: service
       service.netpicker.io: front-end
-    restart: unless-stopped
+    restart: always
     ports:
       - "80:80"
     depends_on:
@@ -104,12 +104,12 @@ services:
 
 
   gitd:
-    image: "netpicker/gitd:2.5.2"
+    image: "netpicker/gitd:2.5.2-rc"
     container_name: gitd
     labels:
       netpicker.io: service
       service.netpicker.io: gitd
-    restart: unless-stopped
+    restart: always
     #ports:
       #- 9418:9418
     volumes:
@@ -117,7 +117,7 @@ services:
 
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.5.2"
+    image: "netpicker/gitdctrl:2.5.2-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -128,11 +128,11 @@ services:
       test: echo "PING" | nc -v localhost 9419
       start_period: 5s
       interval: 5s
-    restart: unless-stopped
+    restart: always
 
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.5.2"
+    image: "netpicker/kibbitzer:2.5.2-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -158,7 +158,7 @@ services:
       - secret:/run/secrets
       - kibbitzer:/celery-worker
       - ./textfsm:/textfsm
-    restart: unless-stopped
+    restart: always
     depends_on:
       - api
       - redis
@@ -171,7 +171,7 @@ services:
     volumes:
       - redis:/data
     command: '--save 60 1 --loglevel warning'
-    restart: on-failure
+    restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
@@ -182,12 +182,12 @@ services:
     environment:
       SWAGGER_JSON_URL: "/openapi.json"
       TRY_IT_OUT_ENABLED: 1
-    restart: unless-stopped
+    restart: always
     depends_on:
       - api
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.5.2"
+    image: "netpicker/syslog-ng:2.5.2-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service
@@ -198,7 +198,7 @@ services:
       - 6514:6614/tcp
     volumes:
       - syslog:/var/lib/syslog-ng
-    restart: unless-stopped
+    restart: always
     depends_on:
       - agent
 

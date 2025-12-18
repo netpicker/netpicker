@@ -212,6 +212,7 @@ services:
 
 volumes:
   config:
+  dc-vol:
   git:
   kibbitzer:
   pg_data:

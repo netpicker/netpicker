@@ -1,0 +1,21 @@
+services:
+  transferium:
+    container_name: transferium
+    image: netpicker/transferium
+    labels:
+      service.netpicker.io: transferium
+    volumes:
+      - transferium:/transferium:z
+    ports:
+      - 21-22:21-22/tcp
+      - 20:20/tcp
+      - 69:69/udp
+      - 31000-31015:31000-31015/tcp
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck"]
+      start_period: 5s
+      interval: 60s
+    environment:
+      FTP_PASV_ADDRESS: <the-ip-where-this-runs-on>
+      FTP_PASV_PORTS: 31000-31015
+

@@ -31,6 +31,7 @@ services:
       NO_PROXY: "api,frontend"
     volumes:
       - secret:/run/secrets
+      - dc-vol:/dc-vol
     restart: always
     depends_on:
       api:
@@ -156,7 +157,9 @@ services:
       interval: 30s
     volumes:
       - secret:/run/secrets
+      - transferium:/transferium
       - kibbitzer:/celery-worker
+      - dc-vol:/dc-vol
       - ./textfsm:/textfsm
     restart: always
     depends_on:
@@ -204,6 +207,7 @@ services:
 
 volumes:
   config:
+  dc-vol:
   git:
   kibbitzer:
   pg_data:

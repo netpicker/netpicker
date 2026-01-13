@@ -100,6 +100,8 @@ services:
     restart: always
     ports:
       - "80:80"
+    volumes:
+      - git:/git      
     depends_on:
       - api
 

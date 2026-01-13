@@ -108,6 +108,8 @@ services:
       service.netpicker.io: front-end
     ports:
       - "80:80"
+    volumes:
+      - git:/git
     restart: always
     depends_on:
       - api

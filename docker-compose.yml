@@ -1,4 +1,4 @@
-x-api: &api_common
+x-api: &api_common_no_deps
   image: "netpicker/api:latest"
   environment:
     alembic_version: "head"
@@ -7,6 +7,9 @@ x-api: &api_common
     UVICORN_ROOT_PATH: /
   volumes:
     - policy-data:/data
+
+x-api-deps: &api_common
+  <<: *api_common_no_deps
   depends_on:
     db:
       condition: service_healthy
@@ -99,6 +102,13 @@ services:
       timeout: 60s
       retries: 5
       start_period: 80s
+
+  db_migration:
+    <<: *api_common_no_deps
+    command: /db-migrate
+    depends_on:
+      db:
+        condition: service_healthy
 
   frontend:
     image: "netpicker/tester-frontend:latest"

@@ -10,6 +10,10 @@ x-api: &api_common
     # CELERY_CONCURRENCY: 16
     # CLI_PROXY_HOST: agent
     # ENABLE_AUDIT_LOGGING: 1 # Enables audit logging for user actions in the API including POST body content
+    # GIT_AUTHOR_NAME: str = 'netpicker'
+    # GIT_AUTHOR_EMAIL: str = 'support@netpicker.io'
+    # GIT_COMMITTER_NAME: str = 'netpicker'
+    # GIT_COMMITTER_EMAIL: str = 'support@netpicker.io'
     # GIT_REPO_MANAGER: '["gitd",9419]'
     # GIT_SERVER: git://gitd
     # INIT_USER: 'admin@admin.com'

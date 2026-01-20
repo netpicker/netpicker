@@ -112,6 +112,11 @@ api:
     enabled: true
     size: 20Gi
 
+# Database migration configuration
+dbMigration:
+  enabled: true
+  resources: {}
+
 # Celery configuration
 celery:
   enabled: true

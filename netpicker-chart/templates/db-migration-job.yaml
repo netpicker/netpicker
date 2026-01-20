@@ -1,0 +1,43 @@
+{{- if .Values.dbMigration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "netpicker.fullname" . }}-db-migration
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-migration
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: db-migration
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      restartPolicy: OnFailure
+      containers:
+        - name: db-migration
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
+          imagePullPolicy: {{ .Values.images.api.pullPolicy }}
+          command: ["/db-migrate"]
+          env:
+            - name: alembic_version
+              value: {{ .Values.api.alembicVersion | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.api.logLevel | quote }}
+            - name: UVICORN_ROOT_PATH
+              value: {{ .Values.api.uvicornRootPath | quote }}
+          volumeMounts:
+            - name: policy-data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.dbMigration.resources | nindent 12 }}
+      volumes:
+        - name: policy-data
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.api.fullname" . }}-data
+{{- end }}

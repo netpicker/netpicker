@@ -69,6 +69,10 @@ images:
     repository: netpicker/syslog-ng
     tag: "2.6.1"
     pullPolicy: IfNotPresent
+  transferium:
+    repository: netpicker/transferium
+    tag: "latest"
+    pullPolicy: IfNotPresent
 
 # Common environment variables
 tagParams:
@@ -213,10 +217,22 @@ syslogng:
     size: 1Gi
   resources: {}
 
+# Transferium configuration (optional FTP/TFTP server)
+transferium:
+  enabled: false
+  ftpPasvAddress: ""  # Set to the IP where this runs
+  ftpPasvPorts: "31000-31015"
+  service:
+    type: NodePort
+  resources: {}
+
 # Persistence configuration for shared volumes
 persistence:
   accessMode: "ReadWriteMany" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
   config:
+    enabled: true
+    size: 1Gi
+  dcVol:
     enabled: true
     size: 1Gi
   transferium:

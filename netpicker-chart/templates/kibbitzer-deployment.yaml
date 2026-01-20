@@ -54,6 +54,8 @@ spec:
           volumeMounts:
             - name: secret
               mountPath: /run/secrets
+            - name: dc-vol
+              mountPath: /dc-vol
           livenessProbe:
             tcpSocket:
               port: 9696
@@ -70,6 +72,9 @@ spec:
         - name: secret
           persistentVolumeClaim:
             claimName: {{ include "netpicker.kibbitzer.fullname" . }}-data
+        - name: dc-vol
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-dc-vol
       securityContext:
         fsGroup: 911
 

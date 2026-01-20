@@ -17,6 +17,25 @@ spec:
 ---
 {{- end }}
 
+{{- if .Values.persistence.dcVol.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "netpicker.fullname" . }}-dc-vol
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.dcVol.size }}
+---
+{{- end }}
+
 {{- if .Values.persistence.transferium.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim

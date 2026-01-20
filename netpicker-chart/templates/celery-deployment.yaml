@@ -42,6 +42,10 @@ spec:
           volumeMounts:
             - name: policy-data
               mountPath: /data
+            - name: transferium
+              mountPath: /transferium
+            - name: dc-vol
+              mountPath: /dc-vol
           livenessProbe:
             exec:
               command:
@@ -56,6 +60,12 @@ spec:
         - name: policy-data
           persistentVolumeClaim:
             claimName: {{ include "netpicker.api.fullname" . }}-data
+        - name: transferium
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-transferium
+        - name: dc-vol
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-dc-vol
       securityContext:
         fsGroup: 911
 {{- end }}

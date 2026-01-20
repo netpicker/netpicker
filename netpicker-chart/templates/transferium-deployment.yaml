@@ -1,0 +1,88 @@
+{{- if .Values.transferium.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.fullname" . }}-transferium
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: transferium
+    netpicker.io: service
+    service.netpicker.io: transferium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: transferium
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: transferium
+        netpicker.io: service
+        service.netpicker.io: transferium
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: transferium
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.transferium) }}
+          imagePullPolicy: {{ .Values.images.transferium.pullPolicy }}
+          env:
+            - name: FTP_PASV_ADDRESS
+              value: {{ .Values.transferium.ftpPasvAddress | quote }}
+            - name: FTP_PASV_PORTS
+              value: {{ .Values.transferium.ftpPasvPorts | quote }}
+          ports:
+            - name: ftp
+              containerPort: 21
+              protocol: TCP
+            - name: ftp-data
+              containerPort: 20
+              protocol: TCP
+            - name: tftp
+              containerPort: 69
+              protocol: UDP
+          volumeMounts:
+            - name: transferium
+              mountPath: /transferium
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/bin/healthcheck
+            initialDelaySeconds: 5
+            periodSeconds: 60
+          resources:
+            {{- toYaml .Values.transferium.resources | nindent 12 }}
+      volumes:
+        - name: transferium
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-transferium
+      securityContext:
+        fsGroup: 911
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.fullname" . }}-transferium
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: transferium
+spec:
+  type: {{ .Values.transferium.service.type }}
+  ports:
+    - port: 21
+      targetPort: ftp
+      protocol: TCP
+      name: ftp
+    - port: 20
+      targetPort: ftp-data
+      protocol: TCP
+      name: ftp-data
+    - port: 69
+      targetPort: tftp
+      protocol: UDP
+      name: tftp
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: transferium
+{{- end }}

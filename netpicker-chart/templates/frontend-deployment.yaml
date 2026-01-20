@@ -31,8 +31,15 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
+          volumeMounts:
+            - name: git
+              mountPath: /git
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
+      volumes:
+        - name: git
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.gitd.fullname" . }}-data
 ---
 apiVersion: v1
 kind: Service

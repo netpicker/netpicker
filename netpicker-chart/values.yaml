@@ -104,6 +104,11 @@ api:
   cliProxyHost: "agent"
   logLevel: "INFO"
   uvicornRootPath: "/"
+  # Git actor settings (optional)
+  # gitAuthorName: "netpicker"
+  # gitAuthorEmail: "support@netpicker.io"
+  # gitCommitterName: "netpicker"
+  # gitCommitterEmail: "support@netpicker.io"
   service:
     type: ClusterIP
     port: 8000

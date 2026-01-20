@@ -38,6 +38,22 @@ spec:
               value: {{ .Values.api.uvicornRootPath | quote }}
             - name: GIT_REPO_MANAGER
               value: '["{{ include "netpicker.gitd.fullname" . }}", {{ .Values.gitdctrl.service.port }}]'
+            {{- if .Values.api.gitAuthorName }}
+            - name: GIT_AUTHOR_NAME
+              value: {{ .Values.api.gitAuthorName | quote }}
+            {{- end }}
+            {{- if .Values.api.gitAuthorEmail }}
+            - name: GIT_AUTHOR_EMAIL
+              value: {{ .Values.api.gitAuthorEmail | quote }}
+            {{- end }}
+            {{- if .Values.api.gitCommitterName }}
+            - name: GIT_COMMITTER_NAME
+              value: {{ .Values.api.gitCommitterName | quote }}
+            {{- end }}
+            {{- if .Values.api.gitCommitterEmail }}
+            - name: GIT_COMMITTER_EMAIL
+              value: {{ .Values.api.gitCommitterEmail | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8000

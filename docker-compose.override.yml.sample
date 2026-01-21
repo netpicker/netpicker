@@ -50,6 +50,7 @@ services:
       # EXTERNAL_GIT_MAPPINGS: '{"rules/default.git": "https://github.com/netpicker/rules-default.git", "configs/default.git": "https://github.com/netpicker/configs-default.git"}'
       # EXTERNAL_GIT_TOKEN: "github_pat_abc"
       # EXTERNAL_GIT_USERNAME: "netpicker"
+      # LOG_EXTERNAL_PUSH: "true"
       # ENABLE_JSON_TO_YAML: "true"
       # SSL_VERIFY: "true"
 

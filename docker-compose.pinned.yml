@@ -1,5 +1,5 @@
-x-api: &api_common
-  image: "netpicker/api:2.6.1"
+x-api: &api_common_no_deps
+  image: "netpicker/api:2.6.2-rc"
   environment:
     alembic_version: ""
     CLI_PROXY_HOST: agent
@@ -7,6 +7,9 @@ x-api: &api_common
     UVICORN_ROOT_PATH: /
   volumes:
     - policy-data:/data
+
+x-api-deps: &api_common
+  <<: *api_common_no_deps
   depends_on:
     db:
       condition: service_healthy
@@ -20,7 +23,7 @@ x-api: &api_common
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:2.6.1"
+    image: "netpicker/agent:2.6.2-rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -31,6 +34,7 @@ services:
       NO_PROXY: "api,frontend"
     volumes:
       - secret:/run/secrets
+      - dc-vol:/dc-vol
     restart: always
     depends_on:
       api:
@@ -90,8 +94,16 @@ services:
       start_period: 80s
 
 
+  db_migration:
+    <<: *api_common_no_deps
+    command: /db-migrate
+    depends_on:
+      db:
+        condition: service_healthy
+
+
   frontend:
-    image: "netpicker/tester-frontend:2.6.1"
+    image: "netpicker/tester-frontend:2.6.2-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -99,12 +111,14 @@ services:
     restart: always
     ports:
       - "80:80"
+    volumes:
+      - git:/git
     depends_on:
       - api
 
 
   gitd:
-    image: "netpicker/gitd:2.6.1"
+    image: "netpicker/gitd:2.6.2-rc"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -117,7 +131,7 @@ services:
 
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.6.1"
+    image: "netpicker/gitdctrl:2.6.2-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -132,7 +146,7 @@ services:
 
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.6.1"
+    image: "netpicker/kibbitzer:2.6.2-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -156,7 +170,9 @@ services:
       interval: 30s
     volumes:
       - secret:/run/secrets
+      - transferium:/transferium
       - kibbitzer:/celery-worker
+      - dc-vol:/dc-vol
       - ./textfsm:/textfsm
     restart: always
     depends_on:
@@ -187,7 +203,7 @@ services:
       - api
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.6.1"
+    image: "netpicker/syslog-ng:2.6.2-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service
@@ -204,6 +220,7 @@ services:
 
 volumes:
   config:
+  dc-vol:
   git:
   kibbitzer:
   pg_data:

@@ -39,7 +39,7 @@ images:
     pullPolicy: IfNotPresent
   redis:
     repository: redis
-    tag: "redis:7-alpine3.21"
+    tag: "7-alpine3.21"
     pullPolicy: IfNotPresent
   gitd:
     repository: netpicker/gitd
@@ -101,6 +101,7 @@ db:
 api:
   enabled: true
   alembicVersion: "b2c3d4e5f6a7"
+  dbPassword: netpicker
   cliProxyHost: "agent"
   logLevel: "INFO"
   uvicornRootPath: "/"

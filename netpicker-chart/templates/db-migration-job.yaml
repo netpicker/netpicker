@@ -5,12 +5,13 @@ metadata:
   name: {{ include "netpicker.fullname" . }}-db-migration
   labels:
     {{- include "netpicker.labels" . | nindent 4 }}
-    app.kubernetes.io/component: db-migration
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "-5"
-    "helm.sh/hook-delete-policy": before-hook-creation
+#    app.kubernetes.io/component: db-migration
+#  annotations:
+#    "helm.sh/hook": post-install,post-upgrade
+#    "helm.sh/hook-weight": "-5"
+#    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
+  ttlSecondsAfterFinished: 3600
   template:
     metadata:
       labels:
@@ -19,11 +20,23 @@ spec:
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
       restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-db-and-migrations
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.db) }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until pg_isready -h db -p 5432; do
+                echo "Postgres is unavailable - sleeping"
+                sleep 2
+              done
+              echo "Postgres is up! Proceeding..."
       containers:
         - name: db-migration
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
-          command: ["/db-migrate"]
+          args: ["/db-migrate"]
           env:
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
@@ -40,4 +53,6 @@ spec:
         - name: policy-data
           persistentVolumeClaim:
             claimName: {{ include "netpicker.api.fullname" . }}-data
+      securityContext:
+        fsGroup: 911
 {{- end }}

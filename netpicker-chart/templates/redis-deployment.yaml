@@ -79,4 +79,4 @@ spec:
   selector:
     {{- include "netpicker.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: redis
-{{- end }} 
+{{- end }}

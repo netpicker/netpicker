@@ -36,15 +36,23 @@ To uninstall/delete the `netpicker` deployment:
 helm uninstall netpicker
 ```
 
+## Secrets
+
+The chart collects the necessary secrets from the v1/secret whose name can be defined in Global parameters (`secretConfig`).
+
+For frictionless installation the chart comes with the "default" secret.
+You can create your own secret that uses specialized secret stores to retrieve the values from.
+
 ## Parameters
 
 ### Global parameters
 
 | Name                      | Description                                     | Value             |
-| ------------------------- | ----------------------------------------------- | ----------------- |
+|---------------------------|-------------------------------------------------|-------------------|
 | `global.imageRegistry`    | Global Docker image registry                    | `""`              |
 | `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
 | `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"local-storage"` |
+| `global.secretConfig`     | Global name of the secret used to set ENV       | `"default"`       |
 
 ### Storage Class parameters
 
@@ -72,7 +80,7 @@ helm uninstall netpicker
 | Name                    | Description                | Value           |
 | ----------------------- | -------------------------- | --------------- |
 | `images.api.repository` | API image repository       | `netpicker/api` |
-| `images.api.tag`        | API image tag              | `2.6.2`           |
+| `images.api.tag`        | API image tag              | `2.6.2`         |
 | `images.api.pullPolicy` | API image pull policy      | `IfNotPresent`  |
 | `images.db.repository`  | Database image repository  | `netpicker/db`  |
 | `images.db.tag`         | Database image tag         | `latest`        |
@@ -95,9 +103,10 @@ For other image parameters, please refer to the values.yaml file.
 ### API parameters
 
 | Name                      | Description                                | Value          |
-| ------------------------- | ------------------------------------------ | -------------- |
+|---------------------------|--------------------------------------------|----------------|
 | `api.enabled`             | Enable API deployment                      | `true`         |
 | `api.alembicVersion`      | Alembic version                            | `3201afd119b9` |
+| `api.jwtSecret`           | JWT secret (key)                           | `<random>`     |
 | `api.logLevel`            | Log level                                  | `INFO`         |
 | `api.uvicornRootPath`     | Uvicorn root path                          | `/`            |
 | `api.service.type`        | Kubernetes Service type                    | `ClusterIP`    |

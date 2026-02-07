@@ -59,7 +59,7 @@ spec:
                 - CELERY_BROKER_URL=redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }} celery inspect ping -t 5
             initialDelaySeconds: 15
             periodSeconds: 30
-            timeout: 7
+            timeoutSeconds: 7
           resources:
             {{- toYaml .Values.celery.resources | nindent 12 }}
       volumes:

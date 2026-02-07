@@ -28,7 +28,10 @@ spec:
           imagePullPolicy: {{ .Values.images.db.pullPolicy }}
           env:
             - name: POSTGRES_PASSWORD
-              value: {{ .Values.db.postgresPassword | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: POSTGRES_PASSWORD
           ports:
             - name: postgres
               containerPort: 5432

@@ -5,6 +5,7 @@ global:
   imageRegistry: "docker.io"
   imagePullSecrets: []
   storageClass: "local-storage"
+  secretConfig: "default"
 
 # Storage class configuration
 storageClass:

@@ -42,12 +42,20 @@ spec:
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: PGPASSWORD
-              value: {{ .Values.api.dbPassword | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: DBPASSWORD
       containers:
         - name: api
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
           env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: JWT_SECRET
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST
@@ -74,6 +82,7 @@ spec:
             - name: GIT_COMMITTER_EMAIL
               value: {{ .Values.api.gitCommitterEmail | quote }}
             {{- end }}
+
           ports:
             - name: http
               containerPort: 8000

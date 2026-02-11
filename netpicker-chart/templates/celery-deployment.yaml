@@ -29,6 +29,7 @@ spec:
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
           command: ["/run-celery"]
           env:
+            {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST
@@ -54,12 +55,10 @@ spec:
           livenessProbe:
             exec:
               command:
-                - sh
-                - -c
-                - CELERY_BROKER_URL=redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }} celery inspect ping -t 5
+                - /usr/local/bin/celery inspect ping -t 5
             initialDelaySeconds: 15
-            periodSeconds: 30
-            timeoutSeconds: 7
+            periodSeconds: 120
+            timeoutSeconds: 10
           resources:
             {{- toYaml .Values.celery.resources | nindent 12 }}
       volumes:

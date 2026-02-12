@@ -24,6 +24,10 @@ spec:
     spec:
       hostname: agent
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/dc-vol" "/secret")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: agent
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.agent) }}

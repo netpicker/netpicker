@@ -21,6 +21,10 @@ spec:
         netpicker.io: service
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/data")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: redis
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.redis) }}

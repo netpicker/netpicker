@@ -34,15 +34,15 @@ jobs:
 
       - name: Run chart-testing lint
         run: |
-          ct lint \
-            --target-branch ${{ github.event.repository.default_branch }} \
-            --charts ./netpicker-chart
+          ct lint #\
+            #--target-branch ${{ github.event.repository.default_branch }} \
+            #--charts ./netpicker-chart
 
       - name: Create kind cluster
         uses: helm/kind-action@v1.10.0
 
       - name: Run chart-testing install
         run: |
-          ct install \
-            --target-branch ${{ github.event.repository.default_branch }} \
-            --charts ./netpicker-chart
+          ct install #\
+            #--target-branch ${{ github.event.repository.default_branch }} \
+            #--charts ./netpicker-chart

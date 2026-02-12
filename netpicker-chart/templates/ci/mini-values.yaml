@@ -1,0 +1,20 @@
+persistence:
+  accessMode: "ReadWriteOnce"
+
+storageClass:
+  provisioner: "k8s.io/minikube-hostpath"
+  volumeBindingMode: "Immediate"
+
+syslogng:
+  enabled: false
+
+api:
+  persistence:
+    size: 1Mi
+db:
+  persistence:
+    size: 1Mi
+
+gitd:
+  persistence:
+    size: 1Mi

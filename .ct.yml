@@ -1,4 +1,2 @@
 chart-dirs:
   - netpicker-chart
-  # - components/web-app
-target-branch: main

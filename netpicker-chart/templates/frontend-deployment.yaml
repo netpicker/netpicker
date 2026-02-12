@@ -23,14 +23,26 @@ spec:
         service.netpicker.io: front-end
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+
+      {{- if .Values.volumePermissions.enabled }}
+      securityContext:
+          sysctls:
+            - name: net.ipv4.ip_unprivileged_port_start
+              value: "0"
+      {{- end }}
+
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/git")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: frontend
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.frontend) }}
           imagePullPolicy: {{ .Values.images.frontend.pullPolicy }}
           {{- if .Values.global.debug }}
           securityContext:
-            runAsUser: 0
-            runAsGroup: 0
+            runAsNonRoot: true              # You can still be a non-root user
+            runAsUser: 911                  # Standard Nginx user UID
           {{- end }}
           ports:
             - name: http

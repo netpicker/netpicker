@@ -7,17 +7,20 @@ metadata:
   annotations:
     "helm.sh/hook": test
 spec:
+  restartPolicy: Never
   containers:
     - name: wget
       image: busybox
       command: ['sh', '-c']
       args:
         - |
-          for i in $(seq 1 15); do 
-            wget -q -S -O - http://{{ include "netpicker.frontend.fullname" . }}:{{ .Values.frontend.service.port }} && exit 0;
+          url="http://{{ include "netpicker.frontend.fullname" . }}:{{ .Values.frontend.service.port }}"
+          for i in $(seq 1 15); do
+            wget -q -S -O - "${url}" && exit 0;
+            exit 0;
             echo "Waiting for frontend... attempt $i";
             sleep 2;
           done;
           exit 1;
-      restartPolicy: Never
+
 

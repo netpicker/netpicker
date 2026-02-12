@@ -60,10 +60,10 @@ spec:
           livenessProbe:
             exec:
               command:
-                - /usr/local/bin/celery inspect ping -t 5
+                - /usr/local/bin/celery inspect ping -t 3
             initialDelaySeconds: 15
             periodSeconds: 120
-            timeoutSeconds: 10
+            timeoutSeconds: 12
           resources:
             {{- toYaml .Values.celery.resources | nindent 12 }}
       volumes:

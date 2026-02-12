@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - '**'
-    paths:
-      - 'netpicker-chart/**'
+    # paths:
+    #   - 'netpicker-chart/**'
 
 jobs:
   lint-test:

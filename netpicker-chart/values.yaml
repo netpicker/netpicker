@@ -158,7 +158,7 @@ gitd:
   service:
     type: NodePort
     port: 9418
-    nodePort: 30918 # Optional: specify a specific NodePort (30000-32767 range)
+    nodePort: 30918  # Optional: specify a specific NodePort (30000-32767 range)
   resources: {}
 
 # Git daemon control configuration
@@ -246,7 +246,7 @@ transferium:
 
 # Persistence configuration for shared volumes
 persistence:
-  accessMode: "ReadWriteMany" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
+  accessMode: "ReadWriteMany"  # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
   config:
     enabled: true
     size: 1Gi

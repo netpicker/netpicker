@@ -4,3 +4,14 @@ description: A Helm chart for Netpicker
 type: application
 version: 2.6.2
 appVersion: "2.6.2"
+home: https://github.com/netpicker/netpicker
+sources:
+  - https://github.com/netpicker/netpicker
+icon: https://avatars.githubusercontent.com/u/156186606?v=4
+keywords:
+  - networking
+  - monitoring
+  - analysis
+  - observability
+annotations:
+  category: Monitoring

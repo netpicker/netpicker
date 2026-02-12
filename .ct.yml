@@ -1,2 +1,37 @@
+# Chart Testing (ct) configuration
+# For more info: https://github.com/helm/chart-testing
+
+# Chart directories to include in linting and testing
 chart-dirs:
+  - .
+
+# Charts to test (specific chart paths)
+charts:
   - netpicker-chart
+
+# Target branch for comparing changes (usually main or master)
+target-branch: main
+
+# Whether to validate maintainers field in Chart.yaml
+validate-maintainers: false
+
+# Whether to check version increment
+check-version-increment: true
+
+# Whether to validate chart version format
+validate-chart-schema: true
+
+# Timeout for helm install/upgrade operations (default: 600s)
+helm-extra-args: --timeout=900s
+
+# Additional Helm repositories to add before testing
+# helm-repos:
+#   - name: bitnami
+#     url: https://charts.bitnami.com/bitnami
+
+# Excluded charts (if any)
+# excluded-charts:
+#   - example-chart
+
+# Debug mode
+debug: false

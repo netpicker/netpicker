@@ -34,4 +34,4 @@ helm-extra-args: --timeout=900s
 #   - example-chart
 
 # Debug mode
-debug: false
+debug: true

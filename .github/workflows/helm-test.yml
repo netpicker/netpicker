@@ -12,14 +12,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # required for ct diff logic
+          fetch-depth: 0  # required for ct
 
       - name: Fetch default branch
         run: |
-          git fetch origin ${{ github.event.repository.default_branch }} --depth=1
+          git fetch origin ${{ github.event.repository.default_branch }}
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -32,31 +32,17 @@ jobs:
       - name: Set up chart-testing
         uses: helm/chart-testing-action@v2.6.1
 
-      - name: List changed charts
-        id: list-changed
-        run: |
-          ct list-changed \
-            --target-branch origin/${{ github.event.repository.default_branch }} \
-            > changed.txt || true
-
-          if [ -s changed.txt ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Run lint
-        if: steps.list-changed.outputs.changed == 'true'
+      - name: Run chart-testing lint
         run: |
           ct lint \
-            --target-branch origin/${{ github.event.repository.default_branch }}
+            --target-branch origin/${{ github.event.repository.default_branch }} \
+            --chart-dirs netpicker-chart
 
       - name: Create kind cluster
-        if: steps.list-changed.outputs.changed == 'true'
         uses: helm/kind-action@v1.10.0
 
-      - name: Run chart install
-        if: steps.list-changed.outputs.changed == 'true'
+      - name: Run chart-testing install
         run: |
           ct install \
-            --target-branch origin/${{ github.event.repository.default_branch }}
+            --target-branch origin/${{ github.event.repository.default_branch }} \
+            --chart-dirs netpicker-chart

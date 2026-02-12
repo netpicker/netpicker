@@ -2,8 +2,11 @@ persistence:
   accessMode: "ReadWriteOnce"
 
 storageClass:
-  provisioner: "k8s.io/minikube-hostpath"
-  volumeBindingMode: "Immediate"
+  enabled: false
+#  name: "standard"
+#  provisioner: "kubernetes.io/host-path"
+#  reclaimPolicy: "Delete"
+#  volumeBindingMode: "Immediate"
 
 syslogng:
   enabled: false

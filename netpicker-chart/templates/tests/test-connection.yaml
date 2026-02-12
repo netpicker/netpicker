@@ -10,6 +10,14 @@ spec:
   containers:
     - name: wget
       image: busybox
-      command: ['wget']
-      args: ['{{ include "netpicker.fullname" . }}:{{ .Values.frontend.service.port }}']
-  restartPolicy: Never
+      command: ['sh', '-c']
+      args:
+        - |
+          for i in $(seq 1 15); do 
+            wget -q -S -O - http://{{ include "netpicker.frontend.fullname" . }}:{{ .Values.frontend.service.port }} && exit 0;
+            echo "Waiting for frontend... attempt $i";
+            sleep 2;
+          done;
+          exit 1;
+      restartPolicy: Never
+

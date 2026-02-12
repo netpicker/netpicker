@@ -7,6 +7,18 @@ global:
   storageClass: "local-storage"
   secretConfig: "default"
 
+
+volumePermissions:
+  enabled: false
+  image:
+    registry: docker.io
+    repository: alpine
+    tag: latest
+  # The UID/GID to chown to
+  user: 911
+  group: 911
+  resources: {}
+
 # Storage class configuration
 storageClass:
   enabled: true
@@ -34,7 +46,7 @@ storageClass:
 images:
   api:
     repository: netpicker/api
-    tag: 2.6.3-rc4
+    tag: 2.6.3-rc5
     pullPolicy: IfNotPresent
   db:
     repository: netpicker/db

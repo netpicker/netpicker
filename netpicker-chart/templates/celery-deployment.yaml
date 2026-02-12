@@ -22,7 +22,12 @@ spec:
         netpicker.io: service
         service.netpicker.io: celery
     spec:
+      enableServiceLinks: false
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "policy-data")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: celery
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
@@ -48,10 +53,10 @@ spec:
           volumeMounts:
             - name: policy-data
               mountPath: /data
-            - name: transferium
-              mountPath: /transferium
-            - name: dc-vol
-              mountPath: /dc-vol
+#            - name: transferium
+#              mountPath: /transferium
+#            - name: dc-vol
+#              mountPath: /dc-vol
           livenessProbe:
             exec:
               command:
@@ -65,12 +70,12 @@ spec:
         - name: policy-data
           persistentVolumeClaim:
             claimName: {{ include "netpicker.api.fullname" . }}-data
-        - name: transferium
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-transferium
-        - name: dc-vol
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-dc-vol
+#        - name: transferium
+#          persistentVolumeClaim:
+#            claimName: {{ include "netpicker.fullname" . }}-transferium
+#        - name: dc-vol
+#          persistentVolumeClaim:
+#            claimName: {{ include "netpicker.fullname" . }}-dc-vol
       securityContext:
         fsGroup: 911
 {{- end }}

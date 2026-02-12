@@ -29,13 +29,17 @@ spec:
             - /bin/sh
             - -c
             - |
-              until pg_isready -h "${DB_HOST}" -p "${DB_PORT:-5432}"; do
+              until pg_isready -h "${API_DB_HOST}" -p "${API_DB_PORT:-5432}"; do
                 echo "Postgres is unavailable - sleeping"
                 sleep 2
               done
               echo "Postgres is up! Proceeding..."
+              chown -R 911:911 /data
           env:
             {{- include "netpicker.dbAdminConfig" . | nindent 12 }}
+          volumeMounts:
+            - name: policy-data
+              mountPath: /data
       {{- end}}
       containers:
         - name: db-migration

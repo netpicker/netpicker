@@ -22,8 +22,12 @@ spec:
         netpicker.io: service
         service.netpicker.io: api
     spec:
+      enableServiceLinks: false
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
       initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/policy-data")) | nindent 8 }}
+        {{- end }}
         - name: wait-for-db-and-migrations
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
           command:

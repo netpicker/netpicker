@@ -7,6 +7,7 @@ on:
       - '**'
     paths:
       - 'netpicker-chart/**'
+      - '.github/workflows/**'
 
 jobs:
   lint-test:

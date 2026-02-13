@@ -14,11 +14,11 @@ spec:
       command: ['sh', '-c']
       args:
         - |
-          url="http://{{ include "netpicker.frontend.fullname" . }}:{{ .Values.frontend.service.port }}"
+          # url="http://{{ include "netpicker.api.fullname" . }}:{{ .Values.frontend.service.port }}/api/v1/status"
+          url="http://{{ include "netpicker.api.fullname" . }}:{{ .Values.api.service.port }}/api/v1/status"
           for i in $(seq 1 15); do
             wget -q -S -O - "${url}" && exit 0;
-            exit 0;
-            echo "Waiting for frontend... attempt $i";
+            echo "Waiting for api ${url} ... attempt $i";
             sleep 2;
           done;
           exit 1;

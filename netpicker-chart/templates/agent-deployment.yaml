@@ -50,12 +50,12 @@ spec:
               mountPath: /dc-vol
           livenessProbe:
             tcpSocket:
-              port: 8765
+              port: {{ .Values.agent.service.portVault }}
             initialDelaySeconds: 12
             periodSeconds: 10
           readinessProbe:
             tcpSocket:
-              port: 8765
+              port: {{ .Values.agent.service.portVault }}
             initialDelaySeconds: 12
             periodSeconds: 10
           resources:
@@ -91,4 +91,96 @@ spec:
   selector:
     {{- include "netpicker.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: agent
+{{- end }}
+
+{{- /* --- Second Agent Deployment (agentsecond) --- */}}
+{{- if .Values.agentsecond.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.fullname" . }}-agentsecond
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentsecond
+    netpicker.io: service
+    service.netpicker.io: agentsecond
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agentsecond
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agentsecond
+        netpicker.io: service
+        service.netpicker.io: agentsecond
+    spec:
+      hostname: agentsecond
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: agentsecond
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" (coalesce .Values.agentsecond.image .Values.images.agent)) }}
+          imagePullPolicy: {{ coalesce .Values.agentsecond.image.pullPolicy .Values.images.agent.pullPolicy }}
+          env:
+            {{- range .Values.agentsecond.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "netpicker.fullname" . }}-tag-params
+          ports:
+            - name: vault
+              containerPort: {{ .Values.agentsecond.service.portVault }}
+              protocol: TCP
+            - name: proxy
+              containerPort: {{ .Values.agentsecond.service.portProxy }}
+              protocol: TCP
+          volumeMounts:
+            - name: secret-agentsecond
+              mountPath: /run/secrets
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.agentsecond.service.portVault }}
+            initialDelaySeconds: 12
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.agentsecond.service.portVault }}
+            initialDelaySeconds: 12
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.agentsecond.resources | nindent 12 }}
+      volumes:
+        - name: secret-agentsecond
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-agentsecond-data
+      securityContext:
+        fsGroup: 911
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.fullname" . }}-agentsecond
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentsecond
+spec:
+  type: {{ .Values.agentsecond.service.type }}
+  ports:
+    - port: {{ .Values.agentsecond.service.portProxy }}
+      targetPort: proxy
+      protocol: TCP
+      name: agentsecond-proxy
+    - port: {{ .Values.agentsecond.service.portVault }}
+      targetPort: vault
+      protocol: TCP
+      name: agentsecond-vault
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: agentsecond
 {{- end }}

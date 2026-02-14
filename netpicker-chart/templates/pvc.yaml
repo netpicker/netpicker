@@ -152,6 +152,31 @@ spec:
 ---
 {{- end }}
 
+{{- /* --- Second Agent PVC (agentsecond) --- */}}
+{{- if and .Values.agentsecond.enabled .Values.agentsecond.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # Use a unique name for the second agent's PVC
+  name: {{ include "netpicker.fullname" . }}-agentsecond-data
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    # Optionally add a component label if needed for selection/management
+    # app.kubernetes.io/component: agentsecond
+spec:
+  accessModes:
+    # Use the global access mode or default
+    - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      # Use the size defined in the agentsecond persistence section
+      storage: {{ .Values.agentsecond.persistence.size }}
+---
+{{- end }}
+
 {{- if and .Values.syslogng.enabled .Values.syslogng.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim

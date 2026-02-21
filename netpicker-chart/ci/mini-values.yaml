@@ -1,0 +1,34 @@
+global:
+  storageClass: "default"
+  debug: true
+
+persistence:
+  accessMode: "ReadWriteOnce"
+
+volumePermissions:
+  enabled: true
+
+storageClass:
+  name: "default"
+  provisioner: "kubernetes.io/host-path"
+  reclaimPolicy: "Delete"
+  volumeBindingMode: "Immediate"
+  allowVolumeExpansion: false
+  mountOptions:
+
+syslogng:
+  enabled: false
+
+api:
+  persistence:
+    size: 1Mi
+db:
+  persistence:
+    size: 1Mi
+
+gitd:
+  persistence:
+    size: 1Mi
+
+swagger:
+  enabled: false

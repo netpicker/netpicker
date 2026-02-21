@@ -23,6 +23,10 @@ spec:
         service.netpicker.io: gitd
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/git")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: gitd
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.gitd) }}

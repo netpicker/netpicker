@@ -21,15 +21,20 @@ spec:
         netpicker.io: service
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/data")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: redis
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.redis) }}
           imagePullPolicy: {{ .Values.images.redis.pullPolicy }}
+          env:
+            {{ include "netpicker.redis" . | nindent 12 }}
+          command: ["/bin/sh"]
           args:
-            - --save
-            - {{ .Values.redis.saveSettings }}
-            - --loglevel
-            - {{ .Values.redis.logLevel }}
+            - -c
+            - {{ include "netpicker.redis-command" . }}
           ports:
             - name: redis
               containerPort: 6379
@@ -38,21 +43,11 @@ spec:
             - name: data
               mountPath: /data
           livenessProbe:
-            exec:
-              command:
-                - redis-cli
-                - --raw
-                - incr
-                - ping
+            {{- include "netpicker.redis-ping" . | nindent 12 }}
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
-            exec:
-              command:
-                - redis-cli
-                - --raw
-                - incr
-                - ping
+            {{- include "netpicker.redis-ping" . | nindent 12 }}
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

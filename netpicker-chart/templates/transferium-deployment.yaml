@@ -23,6 +23,10 @@ spec:
         service.netpicker.io: transferium
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/transferium")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: transferium
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.transferium) }}

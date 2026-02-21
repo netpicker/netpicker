@@ -33,10 +33,12 @@ spec:
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.agent) }}
           imagePullPolicy: {{ .Values.images.agent.pullPolicy }}
           env:
+            {{ include "netpicker.redis" . | nindent 12 }}
             - name: CLI_PROXY_ADDR
               value: {{ .Values.agent.cliProxyAddr | quote }}
             - name: SHARED_SSH_TTL
               value: {{ .Values.agent.sharedSshTtl | quote }}
+
           envFrom:
             - configMapRef:
                 name: {{ include "netpicker.fullname" . }}-tag-params

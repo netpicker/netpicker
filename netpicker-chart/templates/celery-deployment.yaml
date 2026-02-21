@@ -34,6 +34,7 @@ spec:
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
           command: ["/run-celery"]
           env:
+            {{ include "netpicker.redis" . | nindent 12 }}
             {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}

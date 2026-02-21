@@ -46,7 +46,7 @@ storageClass:
 images:
   api:
     repository: netpicker/api
-    tag: 2.6.3-rc5
+    tag: 2.6.3-rc6
     pullPolicy: IfNotPresent
   db:
     repository: netpicker/db
@@ -74,11 +74,11 @@ images:
     pullPolicy: IfNotPresent
   kibbitzer:
     repository: netpicker/kibbitzer
-    tag: "2.6.3"
+    tag: "2.6.3-rc6"
     pullPolicy: IfNotPresent
   agent:
     repository: netpicker/agent
-    tag: "2.6.3"
+    tag: "2.6.3-rc6"
     pullPolicy: IfNotPresent
   syslogng:
     repository: netpicker/syslog-ng
@@ -106,6 +106,7 @@ db:
   host: db
   name: netpicker
   port:
+  sslmode: prefer
 
   postgresPassword: "s3rgts0p!"
   persistence:
@@ -151,6 +152,7 @@ celery:
 # Redis configuration
 redis:
   enabled: true
+  password: true
   persistence:
     enabled: true
     size: 1Gi

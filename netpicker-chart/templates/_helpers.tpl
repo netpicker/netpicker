@@ -87,6 +87,38 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
+{{- define "netpicker.redis" -}}
+{{- if .Values.redis.password }}
+- name: REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: REDIS_PASSWORD
+{{- end }}
+{{- end }}
+
+
+{{- define "netpicker.redis-command" -}}
+{{- if .Values.redis.password -}}
+exec redis-server --requirepass "${REDIS_PASSWORD}" --save {{ .Values.redis.saveSettings }} --loglevel {{ .Values.redis.logLevel }}
+{{- else -}}
+exec redis-server --save {{ .Values.redis.saveSettings }} --loglevel {{ .Values.redis.logLevel }}
+{{- end }}
+{{- end }}
+
+{{- define "netpicker.redis-ping" -}}
+exec:
+  command:
+    - redis-cli
+    - --raw
+    - incr
+    - ping
+    {{- if .Values.redis.password }}
+    - -a
+    - "${REDIS_PASSWORD}"
+    {{- end }}
+{{- end }}
+
 {{- define "netpicker.dbCommon" -}}
 {{- if .Values.db.host }}
 - name: API_DB_HOST
@@ -99,6 +131,10 @@ imagePullSecrets:
 {{- if .Values.db.name }}
 - name: API_DB_NAME
   value: {{ .Values.db.name | quote }}
+{{- end }}
+{{- if .Values.db.sslmode }}
+- name: API_DB_SSLMODE
+  value: {{ .Values.db.sslmode | quote }}
 {{- end }}
 {{- end }}
 

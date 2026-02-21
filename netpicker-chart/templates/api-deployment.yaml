@@ -35,6 +35,7 @@ spec:
             - -c
             - wait-for-db
           env:
+            {{ include "netpicker.redis" . | nindent 12 }}
             {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
@@ -48,6 +49,7 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.global.secretConfig | default "default" }}
                   key: JWT_SECRET
+            {{ include "netpicker.redis" . | nindent 12 }}
             {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}

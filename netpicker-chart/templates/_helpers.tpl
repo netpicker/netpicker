@@ -87,6 +87,114 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
+{{- define "netpicker.redis" -}}
+{{- if .Values.redis.password }}
+- name: REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: REDIS_PASSWORD
+{{- end }}
+{{- end }}
+
+
+{{- define "netpicker.redis-command" -}}
+{{- if .Values.redis.password -}}
+exec redis-server --requirepass "${REDIS_PASSWORD}" --save {{ .Values.redis.saveSettings }} --loglevel {{ .Values.redis.logLevel }}
+{{- else -}}
+exec redis-server --save {{ .Values.redis.saveSettings }} --loglevel {{ .Values.redis.logLevel }}
+{{- end }}
+{{- end }}
+
+{{- define "netpicker.redis-ping" -}}
+exec:
+  command:
+    - redis-cli
+    - --raw
+    - incr
+    - ping
+    {{- if .Values.redis.password }}
+    - -a
+    - "${REDIS_PASSWORD}"
+    {{- end }}
+{{- end }}
+
+{{- define "netpicker.dbCommon" -}}
+{{- if .Values.db.host }}
+- name: API_DB_HOST
+  value: {{ .Values.db.host | quote }}
+{{- end }}
+{{- if .Values.db.port }}
+- name: API_DB_PORT
+  value: {{ .Values.db.port | default "5432" | quote }}
+{{- end }}
+{{- if .Values.db.name }}
+- name: API_DB_NAME
+  value: {{ .Values.db.name | quote }}
+{{- end }}
+{{- if .Values.db.sslmode }}
+- name: API_DB_SSLMODE
+  value: {{ .Values.db.sslmode | quote }}
+{{- end }}
+{{- end }}
+
+{{/*
+Template for Volume Permissions Init Container
+Usage: {{ include "netpicker.init-perms" (dict "context" . "paths" (list "/data" "/config")) }}
+*/}}
+{{- define "netpicker.init-perms" -}}
+- name: volume-permissions
+  image: "{{ .context.Values.volumePermissions.image.repository }}:{{ .context.Values.volumePermissions.image.tag }}"
+  command:
+    - /bin/sh
+    - -c
+    - |
+      {{- range .paths }}
+      chown -R {{ $.context.Values.volumePermissions.user }}:{{ $.context.Values.volumePermissions.group }} {{ . }}
+      {{- end }}
+  securityContext:
+    runAsUser: 0
+  volumeMounts:
+    {{- range .paths }}
+    - name: {{ (splitList "/" .) | last }} # Simple logic: name matches last folder
+      mountPath: {{ . }}
+    {{- end }}
+{{- end -}}
+
+{{/*
+Return the macro for DB connection parts
+*/}}
+{{- define "netpicker.dbConfig" -}}
+{{- include "netpicker.dbCommon" . }}
+- name: API_DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: API_DB_USER
+- name: API_DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: API_DB_PASSWORD
+{{- end -}}
+
+{{/*
+Return the macro for DB connection parts for Migrator
+*/}}
+{{- define "netpicker.dbAdminConfig" -}}
+{{- include "netpicker.dbCommon" . }}
+- name: API_DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: API_DB_ADMIN_USER
+- name: API_DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: API_DB_ADMIN_PASSWORD
+{{- end }}
+
 {{/*
 Create a default fully qualified app name for database
 */}}

@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "netpicker.fullname" . }}-test-connection"
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  restartPolicy: Never
+  containers:
+    - name: wget
+      image: busybox
+      command: ['sh', '-c']
+      args:
+        - |
+          # url="http://{{ include "netpicker.api.fullname" . }}:{{ .Values.frontend.service.port }}/api/v1/status"
+          url="http://{{ include "netpicker.api.fullname" . }}:{{ .Values.api.service.port }}/api/v1/status"
+          echo "${url}"
+          for i in $(seq 1 15); do
+            wget -q -S -O - "${url}" && exit 0;
+            echo "Waiting for api ${url} ... attempt $i";
+            sleep 2;
+          done;
+          exit 1;
+
+

@@ -22,30 +22,23 @@ spec:
         netpicker.io: service
         service.netpicker.io: api
     spec:
+      enableServiceLinks: false
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
       initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/policy-data")) | nindent 8 }}
+        {{- end }}
         - name: wait-for-db-and-migrations
-          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.db) }}
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
           command:
-          - /bin/sh
-          - -c
-          - |
-            echo "Waiting for DB to be reachable and migrated..."
-            QUERY="SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'alembic_version')
-                   AND EXISTS (SELECT FROM alembic_version WHERE version_num = '${alembic_version}');"
-            until [ "$(psql -h db -U netpicker -tAc "$QUERY" 2>/dev/null || echo "f")" = "t" ]; do
-              echo "DB not ready or migration not found. Retrying in 2s..."
-              sleep 2
-            done
-            echo "Database is ready. Starting app!"
+            - /bin/sh
+            - -c
+            - wait-for-db
           env:
+            {{ include "netpicker.redis" . | nindent 12 }}
+            {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.global.secretConfig | default "default" }}
-                  key: DBPASSWORD
       containers:
         - name: api
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
@@ -56,6 +49,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.global.secretConfig | default "default" }}
                   key: JWT_SECRET
+            {{ include "netpicker.redis" . | nindent 12 }}
+            {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST

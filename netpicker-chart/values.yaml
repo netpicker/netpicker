@@ -7,6 +7,18 @@ global:
   storageClass: "local-storage"
   secretConfig: "default"
 
+
+volumePermissions:
+  enabled: false
+  image:
+    registry: docker.io
+    repository: alpine
+    tag: latest
+  # The UID/GID to chown to
+  user: 911
+  group: 911
+  resources: {}
+
 # Storage class configuration
 storageClass:
   enabled: true
@@ -18,11 +30,13 @@ storageClass:
   # - rancher.io/local-path for Rancher's Local Path Provisioner
   # - openebs.io/local for OpenEBS Local PV
   provisioner: "rancher.io/local-path"
+  # provisioner: "k8s.io/minikube-hostpath"
   # Parameters specific to the local path provisioner
   parameters:
     # No specific parameters needed for basic local-path setup
   # WaitForFirstConsumer ensures the PV is created on the node where the pod is scheduled
   volumeBindingMode: "WaitForFirstConsumer"
+  # volumeBindingMode: "Immediate"
   reclaimPolicy: "Delete"
   allowVolumeExpansion: true
   mountOptions:
@@ -32,7 +46,7 @@ storageClass:
 images:
   api:
     repository: netpicker/api
-    tag: "2.6.2"
+    tag: 2.6.3-rc6
     pullPolicy: IfNotPresent
   db:
     repository: netpicker/db
@@ -44,11 +58,11 @@ images:
     pullPolicy: IfNotPresent
   gitd:
     repository: netpicker/gitd
-    tag: "2.6.2"
+    tag: "2.6.3"
     pullPolicy: IfNotPresent
   gitdctrl:
     repository: netpicker/gitdctrl
-    tag: "2.6.2"
+    tag: "2.6.3"
     pullPolicy: IfNotPresent
   swagger:
     repository: swaggerapi/swagger-ui
@@ -56,19 +70,19 @@ images:
     pullPolicy: IfNotPresent
   frontend:
     repository: netpicker/tester-frontend
-    tag: "2.6.2"
+    tag: "2.6.3"
     pullPolicy: IfNotPresent
   kibbitzer:
     repository: netpicker/kibbitzer
-    tag: "2.6.2"
+    tag: "2.6.3-rc6"
     pullPolicy: IfNotPresent
   agent:
     repository: netpicker/agent
-    tag: "2.6.2"
+    tag: "2.6.3-rc6"
     pullPolicy: IfNotPresent
   syslogng:
     repository: netpicker/syslog-ng
-    tag: "2.6.2"
+    tag: "2.6.3"
     pullPolicy: IfNotPresent
   transferium:
     repository: netpicker/transferium
@@ -89,6 +103,11 @@ tagParams:
 # Database configuration
 db:
   enabled: true
+  host: db
+  name: netpicker
+  port:
+  sslmode: prefer
+
   postgresPassword: "s3rgts0p!"
   persistence:
     enabled: true
@@ -101,7 +120,7 @@ db:
 # API configuration
 api:
   enabled: true
-  alembicVersion: "b2c3d4e5f6a7"
+  alembicVersion: "8177f58630a3"
   dbPassword: netpicker
   cliProxyHost: "agent"
   logLevel: "INFO"
@@ -133,6 +152,7 @@ celery:
 # Redis configuration
 redis:
   enabled: true
+  password: true
   persistence:
     enabled: true
     size: 1Gi
@@ -152,7 +172,7 @@ gitd:
   service:
     type: NodePort
     port: 9418
-    nodePort: 30918 # Optional: specify a specific NodePort (30000-32767 range)
+    nodePort: 30918  # Optional: specify a specific NodePort (30000-32767 range)
   resources: {}
 
 # Git daemon control configuration
@@ -240,7 +260,7 @@ transferium:
 
 # Persistence configuration for shared volumes
 persistence:
-  accessMode: "ReadWriteMany" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
+  accessMode: "ReadWriteMany"  # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
   config:
     enabled: true
     size: 1Gi

@@ -22,13 +22,20 @@ spec:
         netpicker.io: service
         service.netpicker.io: celery
     spec:
+      enableServiceLinks: false
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "policy-data")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: celery
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
           command: ["/run-celery"]
           env:
+            {{ include "netpicker.redis" . | nindent 12 }}
+            {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST
@@ -47,31 +54,29 @@ spec:
           volumeMounts:
             - name: policy-data
               mountPath: /data
-            - name: transferium
-              mountPath: /transferium
-            - name: dc-vol
-              mountPath: /dc-vol
+#            - name: transferium
+#              mountPath: /transferium
+#            - name: dc-vol
+#              mountPath: /dc-vol
           livenessProbe:
             exec:
               command:
-                - sh
-                - -c
-                - CELERY_BROKER_URL=redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }} celery inspect ping -t 5
+                - /usr/local/bin/celery inspect ping -t 3
             initialDelaySeconds: 15
-            periodSeconds: 30
-            timeoutSeconds: 7
+            periodSeconds: 120
+            timeoutSeconds: 12
           resources:
             {{- toYaml .Values.celery.resources | nindent 12 }}
       volumes:
         - name: policy-data
           persistentVolumeClaim:
             claimName: {{ include "netpicker.api.fullname" . }}-data
-        - name: transferium
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-transferium
-        - name: dc-vol
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-dc-vol
+#        - name: transferium
+#          persistentVolumeClaim:
+#            claimName: {{ include "netpicker.fullname" . }}-transferium
+#        - name: dc-vol
+#          persistentVolumeClaim:
+#            claimName: {{ include "netpicker.fullname" . }}-dc-vol
       securityContext:
         fsGroup: 911
 {{- end }}

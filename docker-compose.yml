@@ -19,7 +19,9 @@ x-api-deps: &api_common
       condition: service_healthy
     redis:
       condition: service_healthy
-
+    db_migration:
+      condition: service_completed_successfully
+      
 services:
   agent:
     hostname: agent

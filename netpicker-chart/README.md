@@ -48,7 +48,7 @@ You can create your own secret that uses specialized secret stores to retrieve t
 ### Global parameters
 
 | Name                      | Description                                     | Value             |
-|---------------------------|-------------------------------------------------|-------------------|
+| ------------------------- | ----------------------------------------------- | ----------------- |
 | `global.imageRegistry`    | Global Docker image registry                    | `""`              |
 | `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
 | `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"local-storage"` |
@@ -80,7 +80,7 @@ You can create your own secret that uses specialized secret stores to retrieve t
 | Name                    | Description                | Value           |
 | ----------------------- | -------------------------- | --------------- |
 | `images.api.repository` | API image repository       | `netpicker/api` |
-| `images.api.tag`        | API image tag              | `2.6.2`         |
+| `images.api.tag`        | API image tag              | `2.6.4`         |
 | `images.api.pullPolicy` | API image pull policy      | `IfNotPresent`  |
 | `images.db.repository`  | Database image repository  | `netpicker/db`  |
 | `images.db.tag`         | Database image tag         | `latest`        |
@@ -103,7 +103,7 @@ For other image parameters, please refer to the values.yaml file.
 ### API parameters
 
 | Name                      | Description                                | Value          |
-|---------------------------|--------------------------------------------|----------------|
+| ------------------------- | ------------------------------------------ | -------------- |
 | `api.enabled`             | Enable API deployment                      | `true`         |
 | `api.alembicVersion`      | Alembic version                            | `3201afd119b9` |
 | `api.jwtSecret`           | JWT secret (key)                           | `<random>`     |

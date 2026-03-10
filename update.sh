@@ -1,5 +1,5 @@
-bash down.sh
+docker compose down
 mv docker-compose.yml docker-compose.yml.bak.$(date +%s)
 git pull
 docker compose pull
-bash up.sh
+docker compose up -d

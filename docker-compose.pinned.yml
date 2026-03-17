@@ -182,7 +182,7 @@ services:
       - secret:/run/secrets
       - transferium:/transferium
       - kibbitzer:/celery-worker
-      - dc-vol:/dc-vol
+      # - dc-vol:/dc-vol
       - ./textfsm:/textfsm
     restart: always
     depends_on:

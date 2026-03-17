@@ -178,7 +178,7 @@ services:
     volumes:
       - secret:/run/secrets
       - transferium:/transferium
-      - dc-vol:/dc-vol
+      # - dc-vol:/dc-vol
       - kibbitzer:/celery-worker
       - ./textfsm:/textfsm
     restart: always

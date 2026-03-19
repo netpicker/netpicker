@@ -1,0 +1,26 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+{{- if .Values.api.enabled }}
+The API service is available at:
+
+  http://{{ include "netpicker.api.fullname" . }}:{{ .Values.api.service.port }}
+{{- end }}
+
+{{- if .Values.frontend.enabled }}
+The Frontend service is available at:
+
+  http://{{ include "netpicker.frontend.fullname" . }}:{{ .Values.frontend.service.port }}
+{{- end }}
+
+To access the services from outside the cluster, you may need to set up an Ingress or use port-forwarding:
+
+  kubectl port-forward svc/{{ include "netpicker.frontend.fullname" . }} {{ .Values.frontend.service.port }}:{{ .Values.frontend.service.port }}
+
+For more information, please refer to the documentation. 

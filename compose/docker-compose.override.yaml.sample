@@ -1,0 +1,84 @@
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 128m
+      max-file: "4"
+
+
+x-api: &api_common:
+  environment:
+    # ALLOWED_ORIGINS: '["*"]' # CORS domains
+    # API_URL: http://api:8000  # backend-endpoint with respect to service name and exposed port
+    # AUTH_BACKEND: netyce_alchemy  # auhenticating/authorizing backend
+    # BEAT_DB_URI: "postgresql+psycopg2://netpicker:netpicker@db/netpicker"  # Celery Beat Pg connection string
+    # DB_URI: "postgresql+asyncpg://netpicker:netpicker@db/netpicker"  # Async Pg connection string (API)
+    # CELERY_BROKER_URL: redis://redis
+    # CELERY_RESULT_BACKEND: redis://redis
+    # CELERY_CONCURRENCY: 16
+    # CLI_PROXY_HOST: agent
+    # CVE_LIST_V5_REPO_URI: 'https://github.com/CVEProject/cvelistv5.git'
+    # ENABLE_AUDIT_LOGGING: 1 # Enables audit logging for user actions in the API including POST body content
+    # GIT_AUTHOR_NAME: str = 'netpicker'
+    # GIT_AUTHOR_EMAIL: str = 'support@netpicker.io'
+    # GIT_COMMITTER_NAME: str = 'netpicker'
+    # GIT_REPO_MANAGER: '["gitd",9419]'
+    # GIT_SERVER: git://gitd
+    # INIT_USER: 'admin@admin.com'
+    # INIT_PASSWORD: '12345678'
+    # INIT_TENANT: 'default'
+    # JWT_AUDIENCE: "netpicker"
+    # JWT_ALGORITHM: HS256
+    # JWT_SECRET: ew9023cnkljfcnsdlkfsfdhs
+    # NETBOX_API: "https://netbox-endpoint/"
+    # NETBOX_TOKEN: netbox_token_here
+    # PROXY_SSL_VERIFY: 0 # Do not verify any SSL certificate
+    # PROXY_SSL_VERIFY_EXEMPT_HOST: '["my.host", "your.host"]' # Do not verify SSL certificates for given hostnames
+    # PUBLIC_POLICIES:
+    # REDIS_URL: redis://redis
+    # RUN_TESTS_ON_CONFIG_CHANGE: 0 # Don't automatically run the rules when the config of a device has changed
+    # SLURPIT_APIKEY: slurpit_apikey_here
+    # SLURPIT_URL: "https://slurpit-endpoint/"
+    # WORKDIR_VOLUME_PATH: /data/policy-workdir
+    # CVE_LIST_V5_REPO_URI: 'https://github.com/CVEProject/cvelistv5.git'
+    # CVE_IMPORT_YEARS: '["2025", "2024"]'
+
+services:
+  agent:
+    <<: *logging
+    environment:
+      # CLI_TRACE_DIR: /tmp/trace-cli
+      # DEDICATED_CONNECTIONS: 1
+      # SHENV_JUMP_HOST: '192.168.x.x'  # target address of file transfer via scp/sftp/ftp/tftp
+
+  api:
+    <<: *api_common
+    <<: *logging
+
+  celery:
+    <<: *api_common
+    <<: *logging
+
+  db:
+    <<: *logging
+
+  gitd:
+    environment:
+      # ENABLE_EXTERNAL_PUSH: "true"
+      # EXTERNAL_GIT_MAPPINGS: '{"rules/default.git": "https://github.com/netpicker/rules-default.git", "configs/default.git": "https://github.com/netpicker/configs-default.git"}'
+      # EXTERNAL_GIT_TOKEN: "github_pat_abc"
+      # EXTERNAL_GIT_USERNAME: "netpicker"
+      # ENABLE_JSON_TO_YAML: "true"
+      # SSL_VERIFY: "true"
+
+  kibbitzer:
+    <<: *logging
+    # environment:
+      # AUTO_ENABLE: 1                # go to enable mode upon login provided the secret is stored in the vault
+      # EXTRA_PYLIB:                  # colon separated paths to be added to PYTHONPATH
+      # LOG_LEVEL: INFO               # verbosity of the logging: ERROR, WARNING, INFO, DEBUG, TRACE
+      # SHENV_API_TIMEOUT: 60         # seconds; for fast CPU's
+      # SHENV_DEVICES_PER_TASK: 16    # the more the better
+      # SHENV_JUMP_HOST: 192.168.x.x  # target address of file transfer via scp/sftp/ftp/tftp that is reachable by devices
+      # USE_GENERICS: ''              # '1' to use file transfer templates to obain backups/configurations
+

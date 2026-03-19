@@ -1,0 +1,53 @@
+{{- if .Values.options.enabled }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "netpicker.fullname" . }}-cisco-mock"
+  labels:
+    device: cisco-ios
+    {{- include "netpicker.labels" . | nindent 4 }}
+spec:
+  {{- include "netpicker.imagePullSecrets" . | nindent 2 }}
+  containers:
+    - name: cisco-ios
+      image: registry.gitlab.com/netyce/mockit:flockit
+      ports:
+        - name: ssh
+          containerPort: 22
+          protocol: TCP
+        - name: telnet
+          containerPort: 23
+          protocol: TCP
+      env:
+        - name: DEVICE_TYPE
+          value: cisco_ios
+        - name: SSH_USERNAME
+          value: ssh_user
+        - name: SSH_PASSWORD
+          value: ssh_pass
+        - name: TELNET_USERNAME
+          value: telnet_user
+        - name: TELNET_PASSWORD
+          value: telnet_pass
+        - name: TELNET_SERVER_ENABLED
+          value: 'true'
+        - name: DEBUG_ENABLED
+          value: 'true'
+        - name: DEVICE_DELAY
+          value: '0'
+        - name: LOGIN_DELAY
+          value: '0'
+        - name: LOGIN_RETRY
+          value: '0'
+      livenessProbe:
+        tcpSocket:
+          port: 22
+        initialDelaySeconds: 5
+        periodSeconds: 5
+      readinessProbe:
+        tcpSocket:
+          port: 22
+        initialDelaySeconds: 5
+        periodSeconds: 5
+{{- end }}

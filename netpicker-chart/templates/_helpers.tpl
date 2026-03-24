@@ -67,7 +67,7 @@ Return the proper image name
 {{- define "netpicker.image" -}}
 {{- $registryName := .image.registry | default .global.imageRegistry -}}
 {{- $repositoryName := .image.repository -}}
-{{- $tag := .image.tag | toString -}}
+{{- $tag := .image.tag | default "latest" | toString -}}
 {{- if $registryName -}}
     {{- printf "%s/%s:%s" $registryName $repositoryName $tag -}}
 {{- else -}}
@@ -283,4 +283,18 @@ Create a default fully qualified app name for syslog-ng
 */}}
 {{- define "netpicker.syslogng.fullname" -}}
 {{- printf "syslogng" -}}
+{{- end -}}
+
+
+{{- define "netpicker.dependency.dbMigrations" -}}
+image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
+command:
+  - /bin/sh
+  - -c
+  - wait-for-db
+env:
+  {{ include "netpicker.redis" . | nindent 2 }}
+  {{ include "netpicker.dbConfig" . | nindent 2 }}
+  - name: alembic_version
+    value: {{ .Values.api.alembicVersion | quote }}
 {{- end -}}

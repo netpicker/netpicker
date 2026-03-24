@@ -29,6 +29,8 @@ spec:
         {{- include "netpicker.init-perms" (dict "context" . "paths" (list "policy-data")) | nindent 8 }}
         {{- end }}
       containers:
+        - name: wait-for-db-and-migrations
+          {{ include "netpicker.dependency.dbMigrations" . | nindent 10 }}
         - name: celery
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
@@ -44,8 +46,8 @@ spec:
               value: {{ .Values.celery.logLevel | quote }}
             - name: UVICORN_ROOT_PATH
               value: {{ .Values.api.uvicornRootPath | quote }}
-            - name: CELERY_BROKER_URL
-              value: "redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }}"
+            # - name: CELERY_BROKER_URL
+            #   value: "redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }}"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

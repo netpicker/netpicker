@@ -10,7 +10,7 @@ Nginx cannot bind to port 80 inside the container (privileged port).
 
 ### Solution
 
-1. Create a custom `default.conf` with nginx listening on port 8081 instead of 80
+1. Create a custom [`default.conf`](default.conf) with nginx listening on port 8081 instead of 80
 2. Mount it into the container and update the port mapping in `docker-compose.yml`:
 
    ```yaml

@@ -24,3 +24,19 @@ Nginx cannot bind to port 80 inside the container (privileged port).
 > The `:Z` mount option is required for Podman to apply the correct SELinux label so the container process can read the file.
 
 Note that Podman rootless binds to `0.0.0.0`.
+
+## Agent
+
+### Problem
+
+The agent's default git URL (`http://frontend/git`) assumes port 80, which no longer works when nginx listens on 8081.
+
+### Solution
+
+Set the `NETPICKER_GIT_URL` environment variable in `docker-compose.yml`:
+
+   ```yaml
+   agent:
+     environment:
+       NETPICKER_GIT_URL: 'http://frontend:8081/git'
+   ```

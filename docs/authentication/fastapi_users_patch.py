@@ -1,4 +1,6 @@
-# Add the volume mount to the x-api-no-deps volumes section
+# Add the volume mount:
+#
+# x-api: &api_common_no_deps
 #   volumes:
 #     - ./fastapi_users_patch.py:/usr/local/lib/python3.11/site-packages/app/auth/backends/netyce_alchemy/fastapi_users_patch.py:ro
 

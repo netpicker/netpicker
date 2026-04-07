@@ -58,79 +58,83 @@ The SAML configuration is defined in the `docker-compose.override.yml` file as a
 AUTH_BACKEND: saml
 
 SAML: '{
-  "strict": true,
-  "debug": false,
-  "sp": {
-      "entityId": "https://netpicker.example.com/metadata",
-      "assertionConsumerService": {
-        "url": "https://netpicker.example.com/api/v1/auth/saml/callback",
-        "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+      "strict": true,
+      "debug": true,
+      "sp": {
+          "entityId": "https://qbombuht-dev.netpicker.io/api/v1/auth/metadata",
+          "assertionConsumerService": {
+            "url": "https://qbombuht-dev.netpicker.io/api/v1/auth/callback",
+            "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+          },
+          "singleLogoutService": {
+            "url": "https://qbombuht-dev.netpicker.io/api/v1/auth/logout",
+            "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+          },
+          "NameIDFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+          "x509cert": "",
+          "privateKey": ""
       },
-      "singleLogoutService": {
-        "url": "https://netpicker.example.com/api/v1/auth/saml/logout",
-        "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+      "idp": {
+        "entityId": "https://dev.netpicker.io/idp/realms/master",
+        "x509cert": "MIICmzCCAYMCBgGb9KtB8jANBgkqhkiG9w0BAQsFADARMQ8wDQYDVQQDDAZtYXN0ZXIwHhcNMjYwMTI1MTAxODQyWhcNMzYwMTI1MTAyMDIyWjARMQ8wDQYDVQQDDAZtYXN0ZXIwggEi>
+
+        "singleSignOnService": {
+            "url": "https://dev.netpicker.io/idp/realms/master/protocol/saml",
+            "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        },
+        "singleLogoutService": {
+            "url": "https://dev.netpicker.io/idp/realms/master/protocol/saml",
+            "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+        }
       },
-      "NameIDFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
-      "x509cert": "",
-      "privateKey": ""
-  },
-  "idp": {
-    "entityId": "https://idp.example.com/saml/metadata",
-    "singleSignOnService": {
-        "url": "https://idp.example.com/saml/sso",
-        "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
-    },
-    "singleLogoutService": {
-        "url": "https://idp.example.com/saml/slo",
-        "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
-    },
-    "x509cert": "YOUR_IDP_X509_CERTIFICATE"
-  },
-  "security": {
-    "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
-    "digestAlgorithm": "http://www.w3.org/2001/04/xmlenc#sha256",
-    "requestedAuthnContext": false,
-    "wantAttributeStatement": false
-  },
-  "tenant": "DefaultTenant"
-}'
+      "security": {
+        "allowRepeatAttributeName": true,
+        "authnRequestsSigned": false,
+        "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+        "digestAlgorithm": "http://www.w3.org/2001/04/xmlenc#sha256",
+        "requestedAuthnContext": false,
+        "wantAttributeStatement": false
+      },
+      "tenant": "default",
+      "scopes": {
+        "attr": "Role",
+        "map": {
+          "access:api": "access:api",
+          "admin": "admin"
+        }
+      }
+    }'
 ```
 
 ## Configuration Steps
 
 1. **Register Netpicker as a Service Provider with your IdP**:
-
    - You'll need to provide your IdP with:
-     - Entity ID (e.g., `https://netpicker.example.com/metadata`)
-     - Assertion Consumer Service URL (e.g., `https://netpicker.example.com/api/v1/auth/saml/callback`)
+     - Entity ID (e.g., `https://netpicker.example.com/api/v1/auth/metadata`)
+     - Assertion Consumer Service URL (e.g., `https://netpicker.example.com/api/v1/auth/callback`)
      - NameID format (typically email address)
      - Attribute mappings (if required)
 
 2. **Obtain IdP Information**:
-
    - Entity ID
    - Single Sign-On Service URL
    - Single Logout Service URL (if supported)
    - X.509 Certificate
 
 3. **Configure Service Provider Settings**:
-
    - Update the `sp` section with your Netpicker instance details
    - Replace the example URLs with your actual Netpicker URLs
    - If using signed requests, add your certificate and private key
 
 4. **Configure Identity Provider Settings**:
-
    - Update the `idp` section with the information obtained from your IdP
    - Replace the example certificate with the actual certificate from your IdP
 
 5. **Configure Security Settings**:
-
    - Adjust security settings based on your requirements and IdP capabilities
    - The default settings are suitable for most deployments
 
 6. **Update docker-compose.override.yml**:
-
    - Replace the example SAML configuration with your actual configuration
    - Ensure the JSON is properly formatted
 

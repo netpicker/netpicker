@@ -76,7 +76,7 @@ SAML: '{
       },
       "idp": {
         "entityId": "https://dev.netpicker.io/idp/realms/master",
-        "x509cert": "MIICmzCCAYMCBgGb9KtB8jANBgkqhkiG9w0BAQsFADARMQ8wDQYDVQQDDAZtYXN0ZXIwHhcNMjYwMTI1MTAxODQyWhcNMzYwMTI1MTAyMDIyWjARMQ8wDQYDVQQDDAZtYXN0ZXIwggEi>
+        "x509cert": "MIICmzCCAYMCBgGb9KtB8jANBgkqhkiG9w0BAQsFADARMQ8wDQYDVQQDDAZtYXN0ZXIwHhcNMjYwMTI1MTAxODQyWhcNMzYwMTI1MTAyMDIyWjARMQ8wDQYDVQQDDAZtYXN0ZXIwggEi",
 
         "singleSignOnService": {
             "url": "https://dev.netpicker.io/idp/realms/master/protocol/saml",

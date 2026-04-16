@@ -24,19 +24,24 @@ The LDAP configuration is defined in the `docker-compose.override.yml` file as a
 ## Example Configuration
 
 ```yaml
-AUTH_BACKEND: netyce_alchemy
-
-LDAP: '{
-  "server_uri": "ldaps://ldap.example.com:636",
-  "dc": "dc=example,dc=com",
-  "principal": ["cn=admin,dc=example,dc=com", "YourAdminPassword"],
-  "search_base": "ou=people,dc=example,dc=com",
-  "search_filter": "(&(objectClass=inetOrgPerson)(mail={}))",
-  "group_base": "dc=example,dc=com",
-  "group_filter": "(&(ObjectClass=Group)(member={}))",
-  "group_scopes": {"admin_staff": "admin", "*": "access:api"},
-  "user_attributes": {"mail": "email"}
-}'
+x-api: &api_common_no_deps
+  image: "netpicker/api:latest"
+  volumes:
+    - ./certs/ldap-ca.pem:/etc/ssl/certs/ldap-ca.pem:ro
+  environment:
+    AUTH_BACKEND: netyce_alchemy
+    LDAPTLS_CACERT: /etc/ssl/certs/ldap-ca.pem
+    LDAP: '{
+      "server_uri": "ldaps://ldap.example.com:636",
+      "dc": "dc=example,dc=com",
+      "principal": ["cn=admin,dc=example,dc=com", "YourAdminPassword"],
+      "search_base": "ou=people,dc=example,dc=com",
+      "search_filter": "(&(objectClass=inetOrgPerson)(mail={}))",
+      "group_base": "dc=example,dc=com",
+      "group_filter": "(&(ObjectClass=Group)(member={}))",
+      "group_scopes": {"admin_staff": "admin", "*": "access:api"},
+      "user_attributes": {"mail": "email"}
+    }'
 ```
 
 ## Configuration Steps

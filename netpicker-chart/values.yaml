@@ -46,7 +46,7 @@ storageClass:
 images:
   api:
     repository: "netpicker/api"
-    tag: "1.0.0.1.09-rc"
+    tag: "1.2.1-rc"
     pullPolicy: IfNotPresent
   db:
     repository: "netpicker/db"
@@ -58,11 +58,11 @@ images:
     pullPolicy: IfNotPresent
   gitd:
     repository: "netpicker/gitd"
-    tag: "1.0.0.1.09-rc"
+    tag: "1.2.1-rc"
     pullPolicy: IfNotPresent
   gitdctrl:
     repository: "netpicker/gitdctrl"
-    tag: "1.0.0.1.09-rc"
+    tag: "1.2.1-rc"
     pullPolicy: IfNotPresent
   swagger:
     repository: "swaggerapi/swagger-ui"
@@ -70,19 +70,19 @@ images:
     pullPolicy: IfNotPresent
   frontend:
     repository: "netpicker/tester-frontend"
-    tag: "1.0.0.1.09-rc"
+    tag: "1.2.1-rc"
     pullPolicy: IfNotPresent
   kibbitzer:
     repository: "netpicker/kibbitzer"
-    tag: "1.0.0.1.09-rc"
+    tag: "1.2.1-rc"
     pullPolicy: IfNotPresent
   agent:
     repository: "netpicker/agent"
-    tag: "1.0.0.1.09-rc"
+    tag: "1.2.1-rc"
     pullPolicy: IfNotPresent
   syslogng:
     repository: "netpicker/syslog-ng"
-    tag: "1.0.0.1.09-rc"
+    tag: "1.2.1-rc"
     pullPolicy: IfNotPresent
   transferium:
     repository: "netpicker/transferium"

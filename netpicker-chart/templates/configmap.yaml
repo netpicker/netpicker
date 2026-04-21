@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "netpicker.fullname" . }}-tag-params
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+data:
+  TAG_CONN_PARAMS: |
+    {
+      "xslow":{
+        "timeout":{{ .Values.tagParams.xslow.timeout }},
+        "conn_timeout":{{ .Values.tagParams.xslow.conn_timeout }},
+        "read_timeout_override":{{ .Values.tagParams.xslow.read_timeout_override }},
+        "fast_cli":{{ .Values.tagParams.xslow.fast_cli }},
+        "keepalive":{{ .Values.tagParams.xslow.keepalive }}
+      },
+      "slow-cli": {
+        "fast_cli": {{ .Values.tagParams.slow_cli.fast_cli }}
+      }
+    } 

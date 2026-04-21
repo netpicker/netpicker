@@ -1,0 +1,23 @@
+services:
+  cisco_ios:
+    profiles:
+      - lab
+    labels:
+      device: cisco_ios
+    image: registry.gitlab.com/netyce/mockit:flockit
+    environment:
+      DEVICE_TYPE: cisco_ios
+      SSH_USERNAME: ssh_user
+      SSH_PASSWORD: ssh_pass
+      TELNET_USERNAME: telnet_user
+      TELNET_PASSWORD: telnet_pass
+      TELNET_SERVER_ENABLED: true
+      DEBUG_ENABLED: true
+      DEVICE_DELAY: 0
+      LOGIN_DELAY: 0
+      LOGIN_RETRY: 0
+    #volumes:
+    #  - ./scripts:/configs/cisco_ios/scripts
+    ports:
+       - "3201:22"
+       - "4201:23"

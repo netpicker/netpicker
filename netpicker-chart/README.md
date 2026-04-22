@@ -80,7 +80,7 @@ You can create your own secret that uses specialized secret stores to retrieve t
 | Name                    | Description                | Value           |
 | ----------------------- | -------------------------- | --------------- |
 | `images.api.repository` | API image repository       | `netpicker/api` |
-| `images.api.tag`        | API image tag              | `2.6.5`         |
+| `images.api.tag`        | API image tag              | `2.6.6`         |
 | `images.api.pullPolicy` | API image pull policy      | `IfNotPresent`  |
 | `images.db.repository`  | Database image repository  | `netpicker/db`  |
 | `images.db.tag`         | Database image tag         | `latest`        |

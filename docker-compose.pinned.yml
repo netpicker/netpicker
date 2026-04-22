@@ -1,5 +1,5 @@
 x-api: &api_common_no_deps
-  image: "netpicker/api:2.6.5"
+  image: "netpicker/api:0.1.80-rc"
   environment:
     alembic_version: "ac7446f64ac6"
     CLI_PROXY_HOST: agent
@@ -23,13 +23,13 @@ x-api-deps: &api_common
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:2.6.5"
+    image: "netpicker/agent:0.1.80-rc"
     container_name: agent
     labels:
       netpicker.io: service
       service.netpicker.io: agent
     environment:
-      CLI_PROXY_ADDR: "0.0.0.0"
+      CLI_PROXY_ADDR: '0.0.0.0'
       SHARED_SSH_TTL: 180
       NO_PROXY: "api,frontend"
     volumes:
@@ -54,13 +54,7 @@ services:
     ports:
       - "8000:8000"
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python3",
-          "-c",
-          "import requests; requests.get('http://localhost:8000/api/v1/status').raise_for_status()",
-        ]
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/api/v1/status').raise_for_status()"]
       start_period: 60s
       interval: 5s
       retries: 5
@@ -78,11 +72,7 @@ services:
     restart: always
     command: /run-celery
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5",
-        ]
+      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5"]
       start_period: 15s
       interval: 30s
 
@@ -103,6 +93,7 @@ services:
       retries: 5
       start_period: 80s
 
+
   db_migration:
     <<: *api_common_no_deps
     command: /db-migrate
@@ -111,8 +102,9 @@ services:
       db:
         condition: service_healthy
 
+
   frontend:
-    image: "netpicker/tester-frontend:2.6.5"
+    image: "netpicker/tester-frontend:0.1.80-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -125,15 +117,16 @@ services:
     depends_on:
       - api
 
+
   gitd:
-    image: "netpicker/gitd:2.6.5"
+    image: "netpicker/gitd:0.1.80-rc"
     container_name: gitd
     labels:
       netpicker.io: service
       service.netpicker.io: gitd
     restart: always
     #ports:
-    #- 9418:9418
+      #- 9418:9418
     volumes:
       - git:/git
     healthcheck:
@@ -141,8 +134,9 @@ services:
       start_period: 15s
       interval: 5s
 
+
   gitdctrl:
-    image: "netpicker/gitdctrl:2.6.5"
+    image: "netpicker/gitdctrl:0.1.80-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -155,8 +149,9 @@ services:
       interval: 5s
     restart: always
 
+
   kibbitzer:
-    image: "netpicker/kibbitzer:2.6.5"
+    image: "netpicker/kibbitzer:0.1.80-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -166,14 +161,14 @@ services:
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
       SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"
-      SHENV_SHOW_RUN_aruba_os: "show configuration"
-      SHENV_SHOW_RUN_corvil: "show config"
-      SHENV_SHOW_RUN_gigamon: "show running"
-      SHENV_SHOW_RUN_meinberg: "generate_config_backup && cat /var/tmp/lantime_config.backup"
+      SHENV_SHOW_RUN_aruba_os: 'show configuration'
+      SHENV_SHOW_RUN_corvil: 'show config'
+      SHENV_SHOW_RUN_gigamon: 'show running'
+      SHENV_SHOW_RUN_meinberg: 'generate_config_backup && cat /var/tmp/lantime_config.backup'
       SHENV_SHOW_RUN_mikrotik_routeros: "export"
-      SHENV_SHOW_RUN_nokia_srl: "info"
+      SHENV_SHOW_RUN_nokia_srl: 'info'
       SHENV_SHOW_RUN_paloalto_panos: "show config running"
-      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: "export show-sensitive"
+      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: 'export show-sensitive'
     healthcheck:
       test: echo "ping Mac\n" | nc -v 127.0.0.1 9696
       start_period: 15s
@@ -182,7 +177,7 @@ services:
       - secret:/run/secrets
       - transferium:/transferium
       - kibbitzer:/celery-worker
-      # - dc-vol:/dc-vol
+      - dc-vol:/dc-vol
       - ./textfsm:/textfsm
     restart: always
     depends_on:
@@ -196,10 +191,11 @@ services:
       netpicker.io: service
     volumes:
       - redis:/data
-    command: "--save 60 1 --loglevel warning"
+    command: '--save 60 1 --loglevel warning'
     restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+
 
   swagger:
     image: swaggerapi/swagger-ui
@@ -212,7 +208,7 @@ services:
       - api
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.6.5"
+    image: "netpicker/syslog-ng:0.1.80-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service

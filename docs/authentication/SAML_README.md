@@ -4,7 +4,9 @@
 
 SAML (Security Assertion Markup Language) is an open standard for exchanging authentication and authorization data between parties, particularly between an identity provider (IdP) and a service provider (SP). This guide explains how to configure SAML authentication in Netpicker.
 
-**Important**: To enable SAML authentication, you must set the `AUTH_BACKEND` environment variable to `saml` in your `docker-compose.override.yml` file.
+**Important**: SAML runs alongside the default local login rather than replacing it — both are available at the same time. Leave `AUTH_BACKEND` at its default (`netyce_alchemy`); you no longer need to switch it to `saml`. Whenever the `SAML` environment variable is set, the SAML routes are mounted automatically in addition to local login.
+
+**Account linking**: When a SAML user logs in with an email that matches an existing local user, the accounts are linked automatically (the SAML `external_id` is attached to the existing user) instead of erroring out or creating a duplicate.
 
 ## Configuration Parameters
 
@@ -54,20 +56,21 @@ The SAML configuration is defined in the `docker-compose.override.yml` file as a
 ## Example Configuration
 
 ```yaml
-# Set AUTH_BACKEND to saml to enable SAML authentication
-AUTH_BACKEND: saml
+# Setting the SAML environment variable automatically mounts the SAML routes
+# alongside the default local login. AUTH_BACKEND can be left unset (defaults
+# to netyce_alchemy).
 
 SAML: '{
       "strict": true,
       "debug": true,
       "sp": {
-          "entityId": "https://qbombuht-dev.netpicker.io/api/v1/auth/metadata",
+          "entityId": "https://qbombuht-dev.netpicker.io/api/v1/auth/saml/metadata",
           "assertionConsumerService": {
-            "url": "https://qbombuht-dev.netpicker.io/api/v1/auth/callback",
+            "url": "https://qbombuht-dev.netpicker.io/api/v1/auth/saml/callback",
             "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
           },
           "singleLogoutService": {
-            "url": "https://qbombuht-dev.netpicker.io/api/v1/auth/logout",
+            "url": "https://qbombuht-dev.netpicker.io/api/v1/auth/saml/logout",
             "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
           },
           "NameIDFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
@@ -109,9 +112,13 @@ SAML: '{
 ## Configuration Steps
 
 1. **Register Netpicker as a Service Provider with your IdP**:
+   - The SAML endpoints live under the `/saml` sub-prefix to avoid colliding with local auth routes:
+     - Metadata: `/api/v1/auth/saml/metadata`
+     - ACS / callback: `/api/v1/auth/saml/callback`
+     - Logout: `/api/v1/auth/saml/logout`
    - You'll need to provide your IdP with:
-     - Entity ID (e.g., `https://netpicker.example.com/api/v1/auth/metadata`)
-     - Assertion Consumer Service URL (e.g., `https://netpicker.example.com/api/v1/auth/callback`)
+     - Entity ID (e.g., `https://netpicker.example.com/api/v1/auth/saml/metadata`)
+     - Assertion Consumer Service URL (e.g., `https://netpicker.example.com/api/v1/auth/saml/callback`)
      - NameID format (typically email address)
      - Attribute mappings (if required)
 

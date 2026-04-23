@@ -101,7 +101,7 @@ db:
 # API configuration
 api:
   enabled: true
-  alembicVersion: "b2c3d4e5f6a7"
+  alembicVersion: "c74711ac3d02"
   dbPassword: netpicker
   cliProxyHost: "agent"
   logLevel: "INFO"

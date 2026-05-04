@@ -5,6 +5,7 @@ x-api: &api_common_no_deps
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
+    PROXY_SSL_VERIFY: 0
   volumes:
     - policy-data:/data
 

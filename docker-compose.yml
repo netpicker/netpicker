@@ -6,8 +6,14 @@ x-api: &api_common_no_deps
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
     PROXY_SSL_VERIFY: 0
+  # Set this to the GID of the docker group on the host so the api container
+  # can access /var/run/docker.sock. Find it with: getent group docker | cut -d: -f3
+  # (on macOS: stat -f '%g' /var/run/docker.sock)
+  group_add:
+    - "999"
   volumes:
     - policy-data:/data
+    - /var/run/docker.sock:/var/run/docker.sock
 
 x-api-deps: &api_common
   <<: *api_common_no_deps
@@ -22,7 +28,7 @@ x-api-deps: &api_common
       condition: service_healthy
     db_migration:
       condition: service_completed_successfully
-      
+
 services:
   agent:
     hostname: agent

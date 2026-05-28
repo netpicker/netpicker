@@ -11,7 +11,7 @@ spec:
   {{- include "netpicker.imagePullSecrets" . | nindent 2 }}
   containers:
     - name: cisco-ios
-      image: registry.gitlab.com/netyce/mockit:flockit
+      image: registry.gitlab.com/netyce/simdev:flockit
       ports:
         - name: ssh
           containerPort: 22

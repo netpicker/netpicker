@@ -235,7 +235,6 @@ services:
       - agent
 
 volumes:
-  config:
   dc-vol:
   git:
   kibbitzer:

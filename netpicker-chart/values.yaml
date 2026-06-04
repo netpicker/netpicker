@@ -241,9 +241,6 @@ transferium:
 # Persistence configuration for shared volumes
 persistence:
   accessMode: "ReadWriteMany" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
-  config:
-    enabled: true
-    size: 1Gi
   dcVol:
     enabled: true
     size: 1Gi

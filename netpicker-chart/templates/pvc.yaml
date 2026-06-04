@@ -1,22 +1,3 @@
-{{- if .Values.persistence.config.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "netpicker.fullname" . }}-config
-  labels:
-    {{- include "netpicker.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
-  {{- if .Values.global.storageClass }}
-  storageClassName: {{ .Values.global.storageClass }}
-  {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.persistence.config.size }}
----
-{{- end }}
-
 {{- if .Values.persistence.dcVol.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim

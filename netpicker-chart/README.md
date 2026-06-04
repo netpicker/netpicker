@@ -122,8 +122,6 @@ For other parameters, please refer to the values.yaml file.
 | Name                              | Description                                | Value           |
 | --------------------------------- | ------------------------------------------ | --------------- |
 | `persistence.accessMode`          | Access mode for all PVCs                   | `ReadWriteOnce` |
-| `persistence.config.enabled`      | Enable persistence for config              | `true`          |
-| `persistence.config.size`         | PVC Storage Request for config volume      | `1Gi`           |
 | `persistence.transferium.enabled` | Enable persistence for transferium         | `true`          |
 | `persistence.transferium.size`    | PVC Storage Request for transferium volume | `1Gi`           |
 

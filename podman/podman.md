@@ -1,42 +1,41 @@
-# Netpicker - Podman Compatibility Changes
+# Netpicker on rootless Podman
 
-Podman rootless runs containers as a non-root user, causing permission issues that don't occur in Docker. The following changes are required.
+Rootless Podman runs as a non-root user, so privileged ports and bind mounts
+that work on Docker break. [`compose.yml`](compose.yml) is a separate file with
+the fixes below; `docker-compose.yml` is left for Docker.
 
-## Frontend (tester-frontend)
+## Run
 
-### Problem
+```bash
+./podman/up.sh
+# or;
+systemctl --user enable --now podman.socket
+podman compose -f podman/compose.yml up -d
+```
 
-Nginx cannot bind to port 80 inside the container (privileged port).
+Frontend: http://localhost:8081
 
-### Solution
+## Fixes
 
-1. Create a custom [`default.conf`](default.conf) with nginx listening on port 8081 instead of 80
-2. Mount it into the container and update the port mapping in `docker-compose.yml`:
+**Frontend**; can't bind port 80 (host or container). [`default.conf`](default.conf)
+moves nginx to 8081; compose maps `8081:8081`.
 
-   ```yaml
-   frontend:
-     ports:
-       - '8081:8081'
-     volumes:
-       - ./default.conf:/etc/nginx/conf.d/default.conf:Z
-   ```
+**Agent**; default git URL assumes port 80. Set `NETPICKER_GIT_URL: http://frontend:8081/git`.
 
-> The `:Z` mount option is required for Podman to apply the correct SELinux label so the container process can read the file.
+**api / celery**; mount the Podman socket instead of the (nonexistent) Docker
+socket; `${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock:Z`, and drop
+`group_add`. Needs `systemctl --user enable --now podman.socket`. Only powers the
+in-app service-status panel; the stack runs without it.
 
-Note that Podman rootless binds to `0.0.0.0`.
+**syslog-ng**; cant bind ports 514/601 (exits with code 2). Allow low ports:
+`sysctls: { net.ipv4.ip_unprivileged_port_start: "0" }`.
 
-## Agent
+**kibbitzer textfsm**; add `:Z` to the `./textfsm` bind mount or SELinux blocks reads.
 
-### Problem
+`:Z` on a bind mount tells Podman to set the SELinux label so the container can
+read it.
 
-The agent's default git URL (`http://frontend/git`) assumes port 80, which no longer works when nginx listens on 8081.
+## Not handled
 
-### Solution
-
-Set the `NETPICKER_GIT_URL` environment variable in `docker-compose.yml`:
-
-   ```yaml
-   agent:
-     environment:
-       NETPICKER_GIT_URL: 'http://frontend:8081/git'
-   ```
+`backup.sh`, `restore.sh`, `fix-volume-permissions.sh` are Docker only and assume
+no UID offset. Rootless maps uid 911 to ~100910 on the host; adapt before use.

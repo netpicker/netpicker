@@ -1,21 +1,33 @@
-x-api: &api_common
+x-api: &api_common_no_deps
   image: "netpicker/api:latest"
   environment:
-    alembic_version: "0cc73ffe1fc9"
+    alembic_version: "78239c9184d4"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
+    PROXY_SSL_VERIFY: 0
+  # Set this to the GID of the docker group on the host so the api container
+  # can access /var/run/docker.sock. Find it with: getent group docker | cut -d: -f3
+  # (on macOS: stat -f '%g' /var/run/docker.sock)
+  group_add:
+    - "999"
   volumes:
     - policy-data:/data
+    - /var/run/docker.sock:/var/run/docker.sock
+
+x-api-deps: &api_common
+  <<: *api_common_no_deps
   depends_on:
+    redis:
+      condition: service_healthy
     db:
       condition: service_healthy
     gitd:
-      condition: service_started
+      condition: service_healthy
     gitdctrl:
       condition: service_healthy
-    redis:
-      condition: service_healthy
+    db_migration:
+      condition: service_completed_successfully
 
 services:
   agent:
@@ -31,7 +43,8 @@ services:
       NO_PROXY: "api,frontend"
     volumes:
       - secret:/run/secrets
-    restart: unless-stopped
+      - dc-vol:/dc-vol
+    restart: always
     depends_on:
       api:
         condition: service_healthy
@@ -46,6 +59,7 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: api
+    restart: always
     ports:
       - "8000:8000"
     healthcheck:
@@ -64,6 +78,7 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: celery
+    restart: always
     command: /run-celery
     healthcheck:
       test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5"]
@@ -79,6 +94,7 @@ services:
       POSTGRES_PASSWORD: s3rgts0p!
     volumes:
       - pg_data:/var/lib/postgresql/data
+    restart: always
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U netpicker"]
       interval: 30s
@@ -87,14 +103,26 @@ services:
       start_period: 80s
 
 
+  db_migration:
+    <<: *api_common_no_deps
+    command: /db-migrate
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+
   frontend:
     image: "netpicker/tester-frontend:latest"
     container_name: frontend
     labels:
       netpicker.io: service
       service.netpicker.io: front-end
+    restart: always
     ports:
       - "80:80"
+    volumes:
+      - git:/git
     depends_on:
       - api
 
@@ -105,10 +133,15 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: gitd
+    restart: always
     #ports:
       #- 9418:9418
     volumes:
       - git:/git
+    healthcheck:
+      test: ["CMD", "nc", "-vz", "localhost", "9418"]
+      start_period: 15s
+      interval: 5s
 
 
   gitdctrl:
@@ -123,7 +156,7 @@ services:
       test: echo "PING" | nc -v localhost 9419
       start_period: 5s
       interval: 5s
-    restart: unless-stopped
+    restart: always
 
 
   kibbitzer:
@@ -151,8 +184,11 @@ services:
       interval: 30s
     volumes:
       - secret:/run/secrets
+      - transferium:/transferium
       - kibbitzer:/celery-worker
+      - dc-vol:/dc-vol
       - ./textfsm:/textfsm
+    restart: always
     depends_on:
       - api
       - redis
@@ -165,7 +201,7 @@ services:
     volumes:
       - redis:/data
     command: '--save 60 1 --loglevel warning'
-    restart: on-failure
+    restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
 
@@ -176,6 +212,7 @@ services:
     environment:
       SWAGGER_JSON_URL: "/openapi.json"
       TRY_IT_OUT_ENABLED: 1
+    restart: always
     depends_on:
       - api
 
@@ -191,11 +228,13 @@ services:
       - 6514:6614/tcp
     volumes:
       - syslog:/var/lib/syslog-ng
+    restart: always
     depends_on:
       - agent
 
 volumes:
   config:
+  dc-vol:
   git:
   kibbitzer:
   pg_data:

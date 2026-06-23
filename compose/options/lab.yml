@@ -4,7 +4,7 @@ services:
       - lab
     labels:
       device: cisco_ios
-    image: registry.gitlab.com/netyce/mockit:flockit
+    image: registry.gitlab.com/netyce/simdev:flockit
     environment:
       DEVICE_TYPE: cisco_ios
       SSH_USERNAME: ssh_user

@@ -144,6 +144,21 @@ services:
       interval: 5s
 
 
+  gitd-http:
+    image: "netpicker/gitd:latest"
+    container_name: gitd-http
+    command: ["http"]
+    labels:
+      service.netpicker.io: gitd-http
+    volumes:
+      - git:/git:ro,z
+    healthcheck:
+      test: ["CMD", "nc", "-vz", "localhost", "80"]
+      start_period: 15s
+      interval: 5s
+    restart: on-failure
+
+
   gitdctrl:
     image: "netpicker/gitdctrl:latest"
     container_name: gitdctrl

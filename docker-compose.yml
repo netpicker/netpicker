@@ -232,6 +232,29 @@ services:
     depends_on:
       - agent
 
+  cadvisor:
+    image: ghcr.io/google/cadvisor:latest
+    container_name: cadvisor
+    restart: always
+    volumes:
+      - /:/rootfs:ro
+      - /dev/disk/:/dev/disk:ro
+      - /sys:/sys:ro
+      - /var/run:/var/run:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    cpus: "0.5"
+    mem_limit: 256m
+    mem_reservation: 64m
+    read_only: true
+
 volumes:
   config:
   dc-vol:

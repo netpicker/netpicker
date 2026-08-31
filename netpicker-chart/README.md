@@ -96,6 +96,7 @@ For other image parameters, please refer to the values.yaml file.
 | `db.postgresPassword`    | PostgreSQL password                               | `s3rgts0p!` |
 | `db.persistence.enabled` | Enable persistence using PVC                      | `true`      |
 | `db.persistence.size`    | PVC Storage Request for PostgreSQL volume         | `8Gi`       |
+| `db.persistence.accessMode` | Access mode for the PostgreSQL volume          | `ReadWriteOnce` |
 | `db.service.type`        | Kubernetes Service type                           | `ClusterIP` |
 | `db.service.port`        | PostgreSQL service port                           | `5432`      |
 | `db.resources`           | The resources limits for the PostgreSQL container | `{}`        |

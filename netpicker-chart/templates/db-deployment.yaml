@@ -68,7 +68,7 @@ spec:
           {{- include "netpicker.labels" . | nindent 10 }}
       spec:
         accessModes:
-          - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
+          - {{ .Values.db.persistence.accessMode | default "ReadWriteOnce" }}
         {{- if .Values.global.storageClass }}
         storageClassName: {{ .Values.global.storageClass }}
         {{- end }}

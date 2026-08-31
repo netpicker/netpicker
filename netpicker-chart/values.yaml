@@ -93,6 +93,10 @@ db:
   persistence:
     enabled: true
     size: 8Gi
+    # PostgreSQL is a single writer, so this volume is never shared.
+    # Keep ReadWriteOnce. Do not put the database on an RWX file share
+    # such as NFS, because PostgreSQL needs correct file locking.
+    accessMode: "ReadWriteOnce"
   service:
     type: ClusterIP
     port: 5432
@@ -240,7 +244,9 @@ transferium:
 
 # Persistence configuration for shared volumes
 persistence:
-  accessMode: "ReadWriteMany" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
+  # Access mode for the volumes that more than one pod mounts.
+  # The db volume has its own access mode.
+  accessMode: "ReadWriteMany" # (ReadWriteOnce is compatible with local storage)
   dcVol:
     enabled: true
     size: 1Gi

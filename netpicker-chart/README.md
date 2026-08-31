@@ -4,16 +4,35 @@ This Helm chart deploys the Netpicker application on a Kubernetes cluster.
 
 ## Prerequisites
 
-- Kubernetes 1.19+
+- Kubernetes 1.21+
 - Helm 3.2.0+
-- Local Path Provisioner (instructions below)
+- Longhorn (instructions below)
+- An NFS client on every node. Longhorn needs it for the shared volumes.
+  Install `nfs-common` on Debian and Ubuntu, or `nfs-utils` on RHEL and Rocky.
 
-## Installing the Local Path Provisioner
+## Installing Longhorn
 
-Before installing the chart, you need to install the Local Path Provisioner:
+The chart keeps four volumes that more than one pod mounts. These volumes need
+the `ReadWriteMany` access mode. Longhorn supplies this mode, and it also
+supplies the `ReadWriteOnce` block volumes for the database, for Redis, and for
+syslog-ng. Install Longhorn before you install this chart:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.31/deploy/local-path-storage.yaml
+helm repo add longhorn https://charts.longhorn.io
+helm repo update
+helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace
+```
+
+Longhorn makes a storage class with the name `longhorn`. The value
+`global.storageClass` points to it.
+
+Longhorn keeps 3 copies of each volume by default. A cluster with fewer than 3
+nodes keeps the volumes in the `Degraded` state. On a small cluster, set the
+number of copies to the number of nodes:
+
+```bash
+helm install longhorn longhorn/longhorn --namespace longhorn-system \
+  --create-namespace --set defaultSettings.defaultReplicaCount=1
 ```
 
 ## Installing the Chart
@@ -26,7 +45,7 @@ helm install netpicker .
 
 The command deploys Netpicker on the Kubernetes cluster with default configuration. The [Parameters](#parameters) section lists the parameters that can be configured during installation.
 
-Make sure you have installed the Local Path Provisioner as described in the [Installing the Local Path Provisioner](#installing-the-local-path-provisioner) section before deploying this chart.
+Make sure you have installed Longhorn as described in the [Installing Longhorn](#installing-longhorn) section before deploying this chart.
 
 ## Uninstalling the Chart
 
@@ -51,16 +70,16 @@ You can create your own secret that uses specialized secret stores to retrieve t
 | ------------------------- | ----------------------------------------------- | ----------------- |
 | `global.imageRegistry`    | Global Docker image registry                    | `""`              |
 | `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
-| `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"local-storage"` |
+| `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"longhorn"`      |
 | `global.secretConfig`     | Global name of the secret used to set ENV       | `"default"`       |
 
 ### Storage Class parameters
 
 | Name                                | Description                                 | Value                   |
 | ----------------------------------- | ------------------------------------------- | ----------------------- |
-| `storageClass.enabled`              | Enable the creation of the storage class    | `true`                  |
+| `storageClass.enabled`              | Enable the creation of the storage class    | `false`                 |
 | `storageClass.name`                 | Name of the storage class                   | `local-storage`         |
-| `storageClass.isDefault`            | Set as the default storage class            | `true`                  |
+| `storageClass.isDefault`            | Set as the default storage class            | `false`                 |
 | `storageClass.provisioner`          | Provisioner for dynamic volume provisioning | `rancher.io/local-path` |
 | `storageClass.parameters`           | Parameters for the provisioner              | `{}`                    |
 | `storageClass.volumeBindingMode`    | Volume binding mode                         | `WaitForFirstConsumer`  |
@@ -120,28 +139,69 @@ For other parameters, please refer to the values.yaml file.
 
 ### Persistence parameters
 
-| Name                              | Description                                | Value           |
-| --------------------------------- | ------------------------------------------ | --------------- |
-| `persistence.accessMode`          | Access mode for all PVCs                   | `ReadWriteOnce` |
-| `persistence.transferium.enabled` | Enable persistence for transferium         | `true`          |
-| `persistence.transferium.size`    | PVC Storage Request for transferium volume | `1Gi`           |
+| Name                              | Description                                 | Value           |
+| --------------------------------- | ------------------------------------------- | --------------- |
+| `persistence.accessMode`          | Access mode for the shared volumes          | `ReadWriteMany` |
+| `persistence.dcVol.enabled`       | Enable persistence for the dc volume        | `true`          |
+| `persistence.dcVol.size`          | PVC Storage Request for the dc volume       | `1Gi`           |
+| `persistence.transferium.enabled` | Enable persistence for transferium          | `true`          |
+| `persistence.transferium.size`    | PVC Storage Request for transferium volume  | `1Gi`           |
+| `persistence.secret.enabled`      | Enable the shared secrets volume            | `true`          |
+| `persistence.secret.size`         | PVC Storage Request for the secrets volume  | `1Gi`           |
 
 ## Configuration and installation details
 
-### Persistence and Local Storage Provisioning
+### Persistence
 
-The Netpicker chart is configured to use local filesystem storage through a dynamic provisioner. It requires Rancher's Local Path Provisioner (`rancher.io/local-path`), which should be installed before deploying this chart as described in the [Installing the Local Path Provisioner](#installing-the-local-path-provisioner) section.
+The chart uses two groups of volumes.
 
-If you prefer to use a different storage provisioner, you can modify the `storageClass` parameters accordingly.
+**Shared volumes.** More than one pod mounts each of these volumes. They use
+the `persistence.accessMode` parameter, and the default value is
+`ReadWriteMany`. Longhorn starts an NFS share manager pod for each one.
 
-Other local storage provisioner options include:
+| Volume | Pods that mount it |
+| ------ | ------------------ |
+| `api-data` | api, celery, db-migration |
+| `dc-vol` | celery, kibbitzer, agent |
+| `gitd-data` | gitd, frontend |
+| `transferium` | celery, transferium |
+| `secret` | agent, kibbitzer |
 
-- `k8s.io/minikube-hostpath` for Minikube
-- `openebs.io/local` for OpenEBS Local PV
+**Single writer volumes.** One pod mounts each of these volumes. Each one has
+its own parameter, and the default value is `ReadWriteOnce`. Longhorn gives a
+block volume, which is the correct type for a database.
 
-The `WaitForFirstConsumer` volume binding mode ensures that volumes are created on the nodes where the pods are scheduled, which is important for local storage.
+| Volume | Parameter |
+| ------ | --------- |
+| db data | `db.persistence.accessMode` |
+| `redis-data` | `redis.persistence.accessMode` |
+| `syslogng-data` | `syslogng.persistence.accessMode` |
 
-All persistent volume claims are configured to use the `ReadWriteOnce` access mode by default, which is compatible with local storage. This can be changed by setting the `persistence.accessMode` parameter.
+Do not put the database on a `ReadWriteMany` volume. PostgreSQL needs correct
+file locking, and an NFS share can damage the data.
+
+### Local storage instead of Longhorn
+
+You can run the chart on local storage, but on one node only. Local storage
+gives no `ReadWriteMany` volumes. Set these values:
+
+```yaml
+global:
+  storageClass: "local-storage"
+storageClass:
+  enabled: true
+persistence:
+  accessMode: "ReadWriteOnce"
+```
+
+Then install a local provisioner, for example Rancher's Local Path Provisioner:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.31/deploy/local-path-storage.yaml
+```
+
+All pods must then run on the same node, because a local volume exists on one
+node only. Pods that cannot reach their volume stay in the `Pending` state.
 
 ### Ingress
 

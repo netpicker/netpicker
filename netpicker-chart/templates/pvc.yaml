@@ -47,7 +47,7 @@ metadata:
     {{- include "netpicker.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
+    - {{ .Values.redis.persistence.accessMode | default "ReadWriteOnce" }}
   {{- if .Values.global.storageClass }}
   storageClassName: {{ .Values.global.storageClass }}
   {{- end }}
@@ -95,11 +95,12 @@ spec:
 ---
 {{- end }}
 
-{{- if and .Values.kibbitzer.enabled .Values.kibbitzer.persistence.enabled }}
+{{/* The agent and the kibbitzer share this volume at /run/secrets. */}}
+{{- if .Values.persistence.secret.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "netpicker.kibbitzer.fullname" . }}-data
+  name: {{ include "netpicker.fullname" . }}-secret
   labels:
     {{- include "netpicker.labels" . | nindent 4 }}
 spec:
@@ -110,28 +111,10 @@ spec:
   {{- end }}
   resources:
     requests:
-      storage: {{ .Values.kibbitzer.persistence.size }}
+      storage: {{ .Values.persistence.secret.size }}
 ---
 {{- end }}
 
-{{- if and .Values.agent.enabled .Values.agent.persistence.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "netpicker.agent.fullname" . }}-data
-  labels:
-    {{- include "netpicker.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
-  {{- if .Values.global.storageClass }}
-  storageClassName: {{ .Values.global.storageClass }}
-  {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.agent.persistence.size }}
----
-{{- end }}
 
 {{- if and .Values.syslogng.enabled .Values.syslogng.persistence.enabled }}
 apiVersion: v1
@@ -142,7 +125,7 @@ metadata:
     {{- include "netpicker.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
+    - {{ .Values.syslogng.persistence.accessMode | default "ReadWriteOnce" }}
   {{- if .Values.global.storageClass }}
   storageClassName: {{ .Values.global.storageClass }}
   {{- end }}

@@ -4,14 +4,20 @@
 global:
   imageRegistry: "docker.io"
   imagePullSecrets: []
-  storageClass: "local-storage"
+  # Longhorn supplies ReadWriteOnce block volumes and ReadWriteMany shared
+  # volumes. Install Longhorn before you install this chart.
+  storageClass: "longhorn"
   secretConfig: "default"
 
 # Storage class configuration
+# Longhorn installs its own storage class, so this chart makes none.
+# Set enabled to true only if you replace Longhorn with a local storage
+# provisioner. Local storage gives no ReadWriteMany volumes. The shared
+# volumes then work on one node only.
 storageClass:
-  enabled: true
+  enabled: false
   name: "local-storage"
-  isDefault: true
+  isDefault: false
   # Using local path provisioner for local filesystem storage
   # Other options for local storage:
   # - k8s.io/minikube-hostpath for Minikube
@@ -140,6 +146,8 @@ redis:
   persistence:
     enabled: true
     size: 1Gi
+    # Redis is a single writer, so this volume is never shared.
+    accessMode: "ReadWriteOnce"
   service:
     type: ClusterIP
     port: 6379
@@ -202,9 +210,7 @@ kibbitzer:
   service:
     type: ClusterIP
   resources: {}
-  persistence:
-    enabled: true
-    size: 1Gi
+  # The kibbitzer mounts the shared secrets volume. See persistence.secret.
 
 # Agent configuration
 agent:
@@ -216,9 +222,7 @@ agent:
     portVault: 8765
     portProxy: 9876
   resources: {}
-  persistence:
-    enabled: true
-    size: 1Gi
+  # The agent mounts the shared secrets volume. See persistence.secret.
 
 # Syslog-ng configuration
 syslogng:
@@ -231,6 +235,8 @@ syslogng:
   persistence:
     enabled: true
     size: 1Gi
+    # The syslog-ng server is a single writer, so this volume is never shared.
+    accessMode: "ReadWriteOnce"
   resources: {}
 
 # Transferium configuration (optional FTP/TFTP server)
@@ -245,11 +251,16 @@ transferium:
 # Persistence configuration for shared volumes
 persistence:
   # Access mode for the volumes that more than one pod mounts.
-  # The db volume has its own access mode.
-  accessMode: "ReadWriteMany" # (ReadWriteOnce is compatible with local storage)
+  # Longhorn makes an NFS share manager pod for each ReadWriteMany volume.
+  # The db, redis and syslog-ng volumes have their own access mode.
+  accessMode: "ReadWriteMany"
   dcVol:
     enabled: true
     size: 1Gi
   transferium:
+    enabled: true
+    size: 1Gi
+  # The agent and the kibbitzer share this volume at /run/secrets.
+  secret:
     enabled: true
     size: 1Gi

@@ -262,9 +262,19 @@ transferium:
 # Persistence configuration for shared volumes
 persistence:
   # Access mode for the volumes that more than one pod mounts.
-  # Longhorn makes an NFS share manager pod for each ReadWriteMany volume.
   # The db, redis and syslog-ng volumes have their own access mode.
-  accessMode: "ReadWriteMany"
+  #
+  # ReadWriteOnce is the default. A ReadWriteOnce volume attaches to one node,
+  # but all the pods on that node can mount it. All the pods that share a
+  # volume must therefore run on the same node. A pod on another node stays in
+  # the Pending state.
+  #
+  # Set ReadWriteMany to spread these pods over more than one node. The storage
+  # system must supply that mode. Longhorn starts an NFS share manager pod for
+  # each ReadWriteMany volume, and every node then needs an NFS client. Ceph
+  # and NetApp Trident serve that mode from a different storage class, so also
+  # set persistence.storageClass. See the README.
+  accessMode: "ReadWriteOnce"
   # Storage class for all the shared volumes: dc-vol, transferium, the api
   # policy data, the gitd repositories and the secrets. Empty means
   # global.storageClass. Set this only if the ReadWriteMany volumes need

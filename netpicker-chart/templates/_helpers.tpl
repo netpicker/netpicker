@@ -255,3 +255,22 @@ ReadWriteMany. Each claim therefore has its own override.
 {{- define "netpicker.storageClass" -}}
 {{- default .ctx.Values.global.storageClass .override -}}
 {{- end -}}
+
+{{/*
+Update strategy for a deployment that mounts a shared volume.
+
+A ReadWriteOnce volume attaches to one node. A rolling update starts the new
+pod before it stops the old one, and the new pod cannot attach the volume if
+Kubernetes puts it on another node. The update then stops. Recreate stops the
+old pod first and prevents this.
+
+A ReadWriteMany volume has no such limit, so the deployment then keeps the
+default rolling update. The redis and syslog-ng deployments set Recreate
+directly, because their volumes are always ReadWriteOnce.
+*/}}
+{{- define "netpicker.sharedVolumeStrategy" -}}
+{{- if ne .Values.persistence.accessMode "ReadWriteMany" -}}
+strategy:
+  type: Recreate
+{{- end -}}
+{{- end -}}

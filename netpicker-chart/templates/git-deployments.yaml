@@ -10,6 +10,9 @@ metadata:
     service.netpicker.io: gitd
 spec:
   replicas: 1
+  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}

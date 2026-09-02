@@ -7,15 +7,16 @@ This Helm chart deploys the Netpicker application on a Kubernetes cluster.
 - Kubernetes 1.21+
 - Helm 3.2.0+
 - Longhorn (instructions below)
-- An NFS client on every node. Longhorn needs it for the shared volumes.
-  Install `nfs-common` on Debian and Ubuntu, or `nfs-utils` on RHEL and Rocky.
+- An NFS client on every node, but only if you set the shared volumes to
+  `ReadWriteMany`. Install `nfs-common` on Debian and Ubuntu, or `nfs-utils`
+  on RHEL and Rocky. See [Persistence](#persistence).
 
 ## Installing Longhorn
 
-The chart keeps four volumes that more than one pod mounts. These volumes need
-the `ReadWriteMany` access mode. Longhorn supplies this mode, and it also
-supplies the `ReadWriteOnce` block volumes for the database, for Redis, and for
-syslog-ng. Install Longhorn before you install this chart:
+Longhorn supplies the `ReadWriteOnce` block volumes that the chart makes by
+default. It also supplies the `ReadWriteMany` shared volumes, which you need
+only to spread the pods over more than one node. Install Longhorn before you
+install this chart:
 
 ```bash
 helm repo add longhorn https://charts.longhorn.io
@@ -142,7 +143,7 @@ For other parameters, please refer to the values.yaml file.
 
 | Name                              | Description                                 | Value           |
 | --------------------------------- | ------------------------------------------- | --------------- |
-| `persistence.accessMode`          | Access mode for the shared volumes          | `ReadWriteMany` |
+| `persistence.accessMode`          | Access mode for the shared volumes          | `ReadWriteOnce` |
 | `persistence.storageClass`        | StorageClass for the shared volumes. Empty means `global.storageClass` | `""`            |
 | `persistence.dcVol.enabled`       | Enable persistence for the dc volume        | `true`          |
 | `persistence.dcVol.size`          | PVC Storage Request for the dc volume       | `1Gi`           |
@@ -158,9 +159,8 @@ For other parameters, please refer to the values.yaml file.
 The chart uses two groups of volumes.
 
 **Shared volumes.** More than one pod mounts each of these volumes. They use
-the `persistence.accessMode` parameter, and the default value is
-`ReadWriteMany`. They also use the `persistence.storageClass` parameter for
-their storage class. Longhorn starts an NFS share manager pod for each one.
+the `persistence.accessMode` parameter and the `persistence.storageClass`
+parameter.
 
 | Volume | Pods that mount it |
 | ------ | ------------------ |
@@ -169,6 +169,34 @@ their storage class. Longhorn starts an NFS share manager pod for each one.
 | `gitd-data` | gitd, frontend |
 | `transferium` | celery, transferium |
 | `secret` | agent, kibbitzer |
+
+The default access mode is `ReadWriteOnce`. Such a volume attaches to one
+node, but all the pods on that node can mount it. **All the pods in the table
+above must therefore run on the same node.** A pod that Kubernetes puts on
+another node cannot attach the volume and stays in the `Pending` state. On a
+cluster with one worker node, this always holds. On a larger cluster, keep the
+pods together with a `nodeSelector` or with a node affinity rule.
+
+With `ReadWriteOnce`, these deployments also use the `Recreate` update
+strategy. A rolling update starts the new pod before it stops the old one, and
+the new pod cannot attach the volume. `Recreate` stops the old pod first. The
+chart makes this change for you, and it costs a short interruption during an
+upgrade. With `ReadWriteMany`, the deployments keep the rolling update.
+
+To spread these pods over more than one node, set `ReadWriteMany`:
+
+```yaml
+persistence:
+  accessMode: "ReadWriteMany"
+```
+
+The storage system must supply that mode:
+
+- Longhorn starts an NFS share manager pod for each `ReadWriteMany` volume.
+  Every node then needs an NFS client. See [Prerequisites](#prerequisites).
+- Ceph and NetApp Trident serve `ReadWriteMany` from a different storage class
+  than `ReadWriteOnce`. Also set `persistence.storageClass`. See
+  [Other CSI storage systems](#other-csi-storage-systems).
 
 **Single writer volumes.** One pod mounts each of these volumes. Each one has
 its own access mode parameter, and the default value is `ReadWriteOnce`. Each
@@ -190,13 +218,19 @@ file locking, and an NFS share can damage the data.
 ### Other CSI storage systems
 
 The chart works with any storage system that has a CSI driver, because it
-names the storage class in the values only. But one condition applies: the
-system must give `ReadWriteMany` volumes for the shared volumes.
+names the storage class in the values only. With the default access modes, one
+storage class for `ReadWriteOnce` volumes is enough:
 
-Longhorn serves both access modes from one storage class. Ceph and NetApp
-Trident do not. They serve each access mode from a different driver, so they
-need two storage classes. Name the block class in `global.storageClass` and
-name the file class in `persistence.storageClass`.
+```yaml
+global:
+  storageClass: "ceph-block"
+```
+
+You need a second class only if you set the shared volumes to
+`ReadWriteMany`. Longhorn serves both access modes from one storage class, but
+Ceph and NetApp Trident do not. They serve each access mode from a different
+driver. Name the block class in `global.storageClass` and name the file class
+in `persistence.storageClass`.
 
 **Rook-Ceph**, with the class names of your cluster:
 
@@ -204,6 +238,7 @@ name the file class in `persistence.storageClass`.
 global:
   storageClass: "ceph-block"   # rbd.csi.ceph.com, ReadWriteOnce
 persistence:
+  accessMode: "ReadWriteMany"
   storageClass: "cephfs"       # cephfs.csi.ceph.com, ReadWriteMany
 ```
 
@@ -213,6 +248,7 @@ persistence:
 global:
   storageClass: "ontap-san"    # iSCSI or NVMe, ReadWriteOnce
 persistence:
+  accessMode: "ReadWriteMany"
   storageClass: "ontap-nas"    # NFS, ReadWriteMany
 ```
 
@@ -228,15 +264,14 @@ To use the default storage class of the cluster, set `global.storageClass` to
 ### Local storage instead of Longhorn
 
 You can run the chart on local storage, but on one node only. Local storage
-gives no `ReadWriteMany` volumes. Set these values:
+gives no `ReadWriteMany` volumes, so keep the default access modes. Set these
+values:
 
 ```yaml
 global:
   storageClass: "local-storage"
 storageClass:
   enabled: true
-persistence:
-  accessMode: "ReadWriteOnce"
 ```
 
 Then install a local provisioner, for example Rancher's Local Path Provisioner:

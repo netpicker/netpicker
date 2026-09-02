@@ -54,9 +54,7 @@ spec:
           resources:
             {{- toYaml .Values.transferium.resources | nindent 12 }}
       volumes:
-        - name: transferium
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-transferium
+        {{- include "netpicker.volume.transferium" . | nindent 8 }}
       securityContext:
         fsGroup: 911
 ---

@@ -105,9 +105,7 @@ spec:
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
       volumes:
-        - name: policy-data
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.api.fullname" . }}-data
+        {{- include "netpicker.volume.policyData" . | nindent 8 }}
       securityContext:
         fsGroup: 911
 ---

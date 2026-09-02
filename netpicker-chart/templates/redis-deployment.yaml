@@ -62,9 +62,7 @@ spec:
           resources:
             {{- toYaml .Values.redis.resources | nindent 12 }}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.redis.fullname" . }}-data
+        {{- include "netpicker.volume.redisData" . | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service

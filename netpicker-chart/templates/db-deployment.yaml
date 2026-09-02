@@ -69,8 +69,8 @@ spec:
       spec:
         accessModes:
           - {{ .Values.db.persistence.accessMode | default "ReadWriteOnce" }}
-        {{- if .Values.global.storageClass }}
-        storageClassName: {{ .Values.global.storageClass }}
+        {{- with (include "netpicker.storageClass" (dict "ctx" $ "override" .Values.db.persistence.storageClass)) }}
+        storageClassName: {{ . }}
         {{- end }}
         resources:
           requests:

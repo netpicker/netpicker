@@ -61,12 +61,8 @@ spec:
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}
       volumes:
-        - name: secret
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-secret
-        - name: dc-vol
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-dc-vol
+        {{- include "netpicker.volume.secret" . | nindent 8 }}
+        {{- include "netpicker.volume.dcVol" . | nindent 8 }}
       securityContext:
         fsGroup: 911
 ---

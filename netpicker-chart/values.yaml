@@ -4,8 +4,13 @@
 global:
   imageRegistry: "docker.io"
   imagePullSecrets: []
+  # The storage class for every volume that sets no class of its own.
   # Longhorn supplies ReadWriteOnce block volumes and ReadWriteMany shared
-  # volumes. Install Longhorn before you install this chart.
+  # volumes from this one class. Install Longhorn before you install this
+  # chart.
+  # Ceph and NetApp Trident serve the two access modes from two different
+  # classes. On those systems, name the block class here and name the file
+  # class in persistence.storageClass. See the README.
   storageClass: "longhorn"
   secretConfig: "default"
 
@@ -103,6 +108,8 @@ db:
     # Keep ReadWriteOnce. Do not put the database on an RWX file share
     # such as NFS, because PostgreSQL needs correct file locking.
     accessMode: "ReadWriteOnce"
+    # Storage class for this volume. Empty means global.storageClass.
+    storageClass: ""
   service:
     type: ClusterIP
     port: 5432
@@ -148,6 +155,8 @@ redis:
     size: 1Gi
     # Redis is a single writer, so this volume is never shared.
     accessMode: "ReadWriteOnce"
+    # Storage class for this volume. Empty means global.storageClass.
+    storageClass: ""
   service:
     type: ClusterIP
     port: 6379
@@ -237,6 +246,8 @@ syslogng:
     size: 1Gi
     # The syslog-ng server is a single writer, so this volume is never shared.
     accessMode: "ReadWriteOnce"
+    # Storage class for this volume. Empty means global.storageClass.
+    storageClass: ""
   resources: {}
 
 # Transferium configuration (optional FTP/TFTP server)
@@ -254,6 +265,11 @@ persistence:
   # Longhorn makes an NFS share manager pod for each ReadWriteMany volume.
   # The db, redis and syslog-ng volumes have their own access mode.
   accessMode: "ReadWriteMany"
+  # Storage class for all the shared volumes: dc-vol, transferium, the api
+  # policy data, the gitd repositories and the secrets. Empty means
+  # global.storageClass. Set this only if the ReadWriteMany volumes need
+  # another class than the ReadWriteOnce volumes, as on Ceph or Trident.
+  storageClass: ""
   dcVol:
     enabled: true
     size: 1Gi

@@ -70,7 +70,7 @@ You can create your own secret that uses specialized secret stores to retrieve t
 | ------------------------- | ----------------------------------------------- | ----------------- |
 | `global.imageRegistry`    | Global Docker image registry                    | `""`              |
 | `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
-| `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"longhorn"`      |
+| `global.storageClass`     | Default StorageClass for every volume that sets no class of its own | `"longhorn"`      |
 | `global.secretConfig`     | Global name of the secret used to set ENV       | `"default"`       |
 
 ### Storage Class parameters
@@ -116,6 +116,7 @@ For other image parameters, please refer to the values.yaml file.
 | `db.persistence.enabled` | Enable persistence using PVC                      | `true`      |
 | `db.persistence.size`    | PVC Storage Request for PostgreSQL volume         | `8Gi`       |
 | `db.persistence.accessMode` | Access mode for the PostgreSQL volume          | `ReadWriteOnce` |
+| `db.persistence.storageClass` | StorageClass for the PostgreSQL volume. Empty means `global.storageClass` | `""` |
 | `db.service.type`        | Kubernetes Service type                           | `ClusterIP` |
 | `db.service.port`        | PostgreSQL service port                           | `5432`      |
 | `db.resources`           | The resources limits for the PostgreSQL container | `{}`        |
@@ -142,6 +143,7 @@ For other parameters, please refer to the values.yaml file.
 | Name                              | Description                                 | Value           |
 | --------------------------------- | ------------------------------------------- | --------------- |
 | `persistence.accessMode`          | Access mode for the shared volumes          | `ReadWriteMany` |
+| `persistence.storageClass`        | StorageClass for the shared volumes. Empty means `global.storageClass` | `""`            |
 | `persistence.dcVol.enabled`       | Enable persistence for the dc volume        | `true`          |
 | `persistence.dcVol.size`          | PVC Storage Request for the dc volume       | `1Gi`           |
 | `persistence.transferium.enabled` | Enable persistence for transferium          | `true`          |
@@ -157,7 +159,8 @@ The chart uses two groups of volumes.
 
 **Shared volumes.** More than one pod mounts each of these volumes. They use
 the `persistence.accessMode` parameter, and the default value is
-`ReadWriteMany`. Longhorn starts an NFS share manager pod for each one.
+`ReadWriteMany`. They also use the `persistence.storageClass` parameter for
+their storage class. Longhorn starts an NFS share manager pod for each one.
 
 | Volume | Pods that mount it |
 | ------ | ------------------ |
@@ -168,17 +171,59 @@ the `persistence.accessMode` parameter, and the default value is
 | `secret` | agent, kibbitzer |
 
 **Single writer volumes.** One pod mounts each of these volumes. Each one has
-its own parameter, and the default value is `ReadWriteOnce`. Longhorn gives a
-block volume, which is the correct type for a database.
+its own access mode parameter, and the default value is `ReadWriteOnce`. Each
+one also has its own storage class parameter. Longhorn gives a block volume,
+which is the correct type for a database.
 
-| Volume | Parameter |
-| ------ | --------- |
-| db data | `db.persistence.accessMode` |
-| `redis-data` | `redis.persistence.accessMode` |
-| `syslogng-data` | `syslogng.persistence.accessMode` |
+| Volume | Access mode parameter | Storage class parameter |
+| ------ | --------------------- | ----------------------- |
+| db data | `db.persistence.accessMode` | `db.persistence.storageClass` |
+| `redis-data` | `redis.persistence.accessMode` | `redis.persistence.storageClass` |
+| `syslogng-data` | `syslogng.persistence.accessMode` | `syslogng.persistence.storageClass` |
+
+Each storage class parameter has the default value `""`, which means
+`global.storageClass`. Set one only if that volume needs another class.
 
 Do not put the database on a `ReadWriteMany` volume. PostgreSQL needs correct
 file locking, and an NFS share can damage the data.
+
+### Other CSI storage systems
+
+The chart works with any storage system that has a CSI driver, because it
+names the storage class in the values only. But one condition applies: the
+system must give `ReadWriteMany` volumes for the shared volumes.
+
+Longhorn serves both access modes from one storage class. Ceph and NetApp
+Trident do not. They serve each access mode from a different driver, so they
+need two storage classes. Name the block class in `global.storageClass` and
+name the file class in `persistence.storageClass`.
+
+**Rook-Ceph**, with the class names of your cluster:
+
+```yaml
+global:
+  storageClass: "ceph-block"   # rbd.csi.ceph.com, ReadWriteOnce
+persistence:
+  storageClass: "cephfs"       # cephfs.csi.ceph.com, ReadWriteMany
+```
+
+**NetApp Trident**:
+
+```yaml
+global:
+  storageClass: "ontap-san"    # iSCSI or NVMe, ReadWriteOnce
+persistence:
+  storageClass: "ontap-nas"    # NFS, ReadWriteMany
+```
+
+Find the names of the classes in your cluster with this command:
+
+```bash
+kubectl get storageclass
+```
+
+To use the default storage class of the cluster, set `global.storageClass` to
+`""`. The chart then makes each claim with no `storageClassName` field.
 
 ### Local storage instead of Longhorn
 

@@ -47,9 +47,7 @@ spec:
           resources:
             {{- toYaml .Values.syslogng.resources | nindent 12 }}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.syslogng.fullname" . }}-data
+        {{- include "netpicker.volume.syslogngData" . | nindent 8 }}
       securityContext:
         fsGroup: 911
 ---

@@ -65,7 +65,7 @@ Create the name of the service account to use
 Return the proper image name
 */}}
 {{- define "netpicker.image" -}}
-{{- $registryName := .global.imageRegistry | default .image.repository -}}
+{{- $registryName := .global.imageRegistry -}}
 {{- $repositoryName := .image.repository -}}
 {{- $tag := .image.tag | toString -}}
 {{- if $registryName -}}
@@ -162,4 +162,96 @@ Create a default fully qualified app name for syslog-ng
 */}}
 {{- define "netpicker.syslogng.fullname" -}}
 {{- printf "syslogng" -}}
+{{- end -}}
+
+{{/*
+Pod volumes for the persistent claims.
+Each one gives the claim when its persistence is on and an emptyDir when it
+is off, so a pod never references a claim that the chart does not make.
+*/}}
+{{- define "netpicker.volume.dcVol" -}}
+- name: dc-vol
+{{- if .Values.persistence.dcVol.enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "netpicker.fullname" . }}-dc-vol
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "netpicker.volume.secret" -}}
+- name: secret
+{{- if .Values.persistence.secret.enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "netpicker.fullname" . }}-secret
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "netpicker.volume.transferium" -}}
+- name: transferium
+{{- if .Values.persistence.transferium.enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "netpicker.fullname" . }}-transferium
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "netpicker.volume.policyData" -}}
+- name: policy-data
+{{- if .Values.api.persistence.enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "netpicker.api.fullname" . }}-data
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "netpicker.volume.git" -}}
+- name: git
+{{- if .Values.gitd.persistence.enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "netpicker.gitd.fullname" . }}-data
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "netpicker.volume.redisData" -}}
+- name: data
+{{- if .Values.redis.persistence.enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "netpicker.redis.fullname" . }}-data
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "netpicker.volume.syslogngData" -}}
+- name: data
+{{- if .Values.syslogng.persistence.enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "netpicker.syslogng.fullname" . }}-data
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{/*
+Return the storage class for a claim.
+Call it with a dict that holds "ctx", the root context, and "override", the
+storage class of that one volume. The override wins. If the override is
+empty, the helper gives global.storageClass. If both are empty, the helper
+gives an empty string and the claim keeps no storageClassName field. The
+cluster default storage class then applies.
+
+The RWO claims and the RWX claims can need different classes. Longhorn
+serves both access modes from one class, but Ceph and NetApp Trident do not:
+the block driver serves ReadWriteOnce and the file driver serves
+ReadWriteMany. Each claim therefore has its own override.
+*/}}
+{{- define "netpicker.storageClass" -}}
+{{- default .ctx.Values.global.storageClass .override -}}
 {{- end -}}

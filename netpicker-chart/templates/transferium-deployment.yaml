@@ -10,6 +10,9 @@ metadata:
     service.netpicker.io: transferium
 spec:
   replicas: 1
+  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -54,9 +57,7 @@ spec:
           resources:
             {{- toYaml .Values.transferium.resources | nindent 12 }}
       volumes:
-        - name: transferium
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-transferium
+        {{- include "netpicker.volume.transferium" . | nindent 8 }}
       securityContext:
         fsGroup: 911
 ---

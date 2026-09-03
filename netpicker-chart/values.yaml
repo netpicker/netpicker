@@ -4,14 +4,25 @@
 global:
   imageRegistry: "docker.io"
   imagePullSecrets: []
-  storageClass: "local-storage"
+  # The storage class for every volume that sets no class of its own.
+  # Longhorn supplies ReadWriteOnce block volumes and ReadWriteMany shared
+  # volumes from this one class. Install Longhorn before you install this
+  # chart.
+  # Ceph and NetApp Trident serve the two access modes from two different
+  # classes. On those systems, name the block class here and name the file
+  # class in persistence.storageClass. See the README.
+  storageClass: "longhorn"
   secretConfig: "default"
 
 # Storage class configuration
+# Longhorn installs its own storage class, so this chart makes none.
+# Set enabled to true only if you replace Longhorn with a local storage
+# provisioner. Local storage gives no ReadWriteMany volumes. The shared
+# volumes then work on one node only.
 storageClass:
-  enabled: true
+  enabled: false
   name: "local-storage"
-  isDefault: true
+  isDefault: false
   # Using local path provisioner for local filesystem storage
   # Other options for local storage:
   # - k8s.io/minikube-hostpath for Minikube
@@ -93,6 +104,12 @@ db:
   persistence:
     enabled: true
     size: 8Gi
+    # PostgreSQL is a single writer, so this volume is never shared.
+    # Keep ReadWriteOnce. Do not put the database on an RWX file share
+    # such as NFS, because PostgreSQL needs correct file locking.
+    accessMode: "ReadWriteOnce"
+    # Storage class for this volume. Empty means global.storageClass.
+    storageClass: ""
   service:
     type: ClusterIP
     port: 5432
@@ -136,6 +153,10 @@ redis:
   persistence:
     enabled: true
     size: 1Gi
+    # Redis is a single writer, so this volume is never shared.
+    accessMode: "ReadWriteOnce"
+    # Storage class for this volume. Empty means global.storageClass.
+    storageClass: ""
   service:
     type: ClusterIP
     port: 6379
@@ -198,9 +219,7 @@ kibbitzer:
   service:
     type: ClusterIP
   resources: {}
-  persistence:
-    enabled: true
-    size: 1Gi
+  # The kibbitzer mounts the shared secrets volume. See persistence.secret.
 
 # Agent configuration
 agent:
@@ -212,9 +231,7 @@ agent:
     portVault: 8765
     portProxy: 9876
   resources: {}
-  persistence:
-    enabled: true
-    size: 1Gi
+  # The agent mounts the shared secrets volume. See persistence.secret.
 
 # Syslog-ng configuration
 syslogng:
@@ -227,6 +244,10 @@ syslogng:
   persistence:
     enabled: true
     size: 1Gi
+    # The syslog-ng server is a single writer, so this volume is never shared.
+    accessMode: "ReadWriteOnce"
+    # Storage class for this volume. Empty means global.storageClass.
+    storageClass: ""
   resources: {}
 
 # Transferium configuration (optional FTP/TFTP server)
@@ -240,10 +261,32 @@ transferium:
 
 # Persistence configuration for shared volumes
 persistence:
-  accessMode: "ReadWriteMany" # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
+  # Access mode for the volumes that more than one pod mounts.
+  # The db, redis and syslog-ng volumes have their own access mode.
+  #
+  # ReadWriteOnce is the default. A ReadWriteOnce volume attaches to one node,
+  # but all the pods on that node can mount it. All the pods that share a
+  # volume must therefore run on the same node. A pod on another node stays in
+  # the Pending state.
+  #
+  # Set ReadWriteMany to spread these pods over more than one node. The storage
+  # system must supply that mode. Longhorn starts an NFS share manager pod for
+  # each ReadWriteMany volume, and every node then needs an NFS client. Ceph
+  # and NetApp Trident serve that mode from a different storage class, so also
+  # set persistence.storageClass. See the README.
+  accessMode: "ReadWriteOnce"
+  # Storage class for all the shared volumes: dc-vol, transferium, the api
+  # policy data, the gitd repositories and the secrets. Empty means
+  # global.storageClass. Set this only if the ReadWriteMany volumes need
+  # another class than the ReadWriteOnce volumes, as on Ceph or Trident.
+  storageClass: ""
   dcVol:
     enabled: true
     size: 1Gi
   transferium:
+    enabled: true
+    size: 1Gi
+  # The agent and the kibbitzer share this volume at /run/secrets.
+  secret:
     enabled: true
     size: 1Gi

@@ -10,6 +10,9 @@ metadata:
     service.netpicker.io: front-end
 spec:
   replicas: 1
+  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -37,9 +40,7 @@ spec:
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
       volumes:
-        - name: git
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.gitd.fullname" . }}-data
+        {{- include "netpicker.volume.git" . | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service

@@ -10,6 +10,10 @@ metadata:
     service.netpicker.io: syslog-ng
 spec:
   replicas: 1
+  # The syslog-ng volume is a ReadWriteOnce block volume. A rolling update starts
+  # a second pod, which cannot attach the volume. Recreate prevents this.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -43,9 +47,7 @@ spec:
           resources:
             {{- toYaml .Values.syslogng.resources | nindent 12 }}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.syslogng.fullname" . }}-data
+        {{- include "netpicker.volume.syslogngData" . | nindent 8 }}
       securityContext:
         fsGroup: 911
 ---

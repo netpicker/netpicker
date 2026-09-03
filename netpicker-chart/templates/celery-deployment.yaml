@@ -10,6 +10,9 @@ metadata:
     service.netpicker.io: celery
 spec:
   replicas: 1
+  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -63,15 +66,9 @@ spec:
           resources:
             {{- toYaml .Values.celery.resources | nindent 12 }}
       volumes:
-        - name: policy-data
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.api.fullname" . }}-data
-        - name: transferium
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-transferium
-        - name: dc-vol
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-dc-vol
+        {{- include "netpicker.volume.policyData" . | nindent 8 }}
+        {{- include "netpicker.volume.transferium" . | nindent 8 }}
+        {{- include "netpicker.volume.dcVol" . | nindent 8 }}
       securityContext:
         fsGroup: 911
 {{- end }}

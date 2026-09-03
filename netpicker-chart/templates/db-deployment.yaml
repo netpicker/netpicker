@@ -27,6 +27,11 @@ spec:
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.db) }}
           imagePullPolicy: {{ .Values.images.db.pullPolicy }}
           env:
+            # Longhorn volumes are ext4 block devices that carry a lost+found
+            # directory at the mount point, and initdb refuses to run in a
+            # non-empty directory. Keep the cluster in a subdirectory.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -68,9 +73,9 @@ spec:
           {{- include "netpicker.labels" . | nindent 10 }}
       spec:
         accessModes:
-          - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
-        {{- if .Values.global.storageClass }}
-        storageClassName: {{ .Values.global.storageClass }}
+          - {{ .Values.db.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- with (include "netpicker.storageClass" (dict "ctx" $ "override" .Values.db.persistence.storageClass)) }}
+        storageClassName: {{ . }}
         {{- end }}
         resources:
           requests:

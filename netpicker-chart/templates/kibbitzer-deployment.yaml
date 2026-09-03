@@ -10,6 +10,9 @@ metadata:
     service.netpicker.io: kibbitzer
 spec:
   replicas: 1
+  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -69,12 +72,8 @@ spec:
           resources:
             {{- toYaml .Values.kibbitzer.resources | nindent 12 }}
       volumes:
-        - name: secret
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.kibbitzer.fullname" . }}-data
-        - name: dc-vol
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.fullname" . }}-dc-vol
+        {{- include "netpicker.volume.secret" . | nindent 8 }}
+        {{- include "netpicker.volume.dcVol" . | nindent 8 }}
       securityContext:
         fsGroup: 911
 

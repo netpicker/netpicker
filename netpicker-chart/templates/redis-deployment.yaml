@@ -9,6 +9,10 @@ metadata:
     netpicker.io: service
 spec:
   replicas: 1
+  # The redis volume is a ReadWriteOnce block volume. A rolling update starts
+  # a second pod, which cannot attach the volume. Recreate prevents this.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -58,9 +62,7 @@ spec:
           resources:
             {{- toYaml .Values.redis.resources | nindent 12 }}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "netpicker.redis.fullname" . }}-data
+        {{- include "netpicker.volume.redisData" . | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service

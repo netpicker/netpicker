@@ -6,7 +6,7 @@ x-api: &api_common_no_deps
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
     PROXY_SSL_VERIFY: 0
-    S3_SECRET_ACCESS_KEY: "$MINIO_ROOT_PASSWORD"
+    S3_SECRET_ACCESS_KEY: "minio-S3cret-key.!"
 
   # Set this to the GID of the docker group on the host so the api container
   # can access /var/run/docker.sock. Find it with: getent group docker | cut -d: -f3
@@ -117,7 +117,7 @@ services:
     labels:
       netpicker.io: service
     environment:
-      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
+      POSTGRES_PASSWORD: s3rgts0p!image_registry=docker.io
     volumes:
       - pg_data:/var/lib/postgresql/data
     restart: always
@@ -229,7 +229,7 @@ services:
     image: minio/minio:latest
     environment:
       MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: "$MINIO_ROOT_PASSWORD"
+      MINIO_ROOT_PASSWORD: "minio-S3cret-key.!"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"

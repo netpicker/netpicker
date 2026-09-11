@@ -236,6 +236,10 @@ Create a default fully qualified app name for celery
 {{- printf "celery" -}}
 {{- end -}}
 
+{{- define "netpicker.committer.fullname" -}}
+{{- printf "committer" -}}
+{{- end -}}
+
 {{/*
 Create a default fully qualified app name for gitd
 */}}
@@ -278,6 +282,10 @@ Create a default fully qualified app name for agent
 {{- printf "agent" -}}
 {{- end -}}
 
+{{- define "netpicker.minio.fullname" -}}
+{{- printf "minio" -}}
+{{- end -}}
+
 {{/*
 Create a default fully qualified app name for syslog-ng
 */}}
@@ -293,8 +301,21 @@ command:
   - -c
   - wait-for-db
 env:
-  {{ include "netpicker.redis" . | nindent 2 }}
   {{ include "netpicker.dbConfig" . | nindent 2 }}
   - name: alembic_version
     value: {{ .Values.api.alembicVersion | quote }}
 {{- end -}}
+
+{{- define "netpicker.wait-for-db" -}}
+- name: wait-for-db-and-migrations
+  image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
+  command:
+    - /bin/sh
+    - -c
+    - wait-for-db
+  env:
+    {{ include "netpicker.dbConfig" . | nindent 4 }}
+    - name: alembic_version
+      value: {{ .Values.api.alembicVersion | quote }}
+{{- end -}}
+

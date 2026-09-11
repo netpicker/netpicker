@@ -44,45 +44,52 @@ storageClass:
     - nodiratime
 
 images:
+  agent:
+    repository: "netpicker/agent"
+    tag: "2.8-rc"
+    pullPolicy: IfNotPresent
   api:
     repository: "netpicker/api"
-    tag: "2.7.6"
+    tag: "2.8-rc"
     pullPolicy: IfNotPresent
   db:
     repository: "netpicker/db"
     tag: "18"
     pullPolicy: IfNotPresent
-  redis:
-    repository: "redis"
-    tag: 7-alpine3.21
+  frontend:
+    repository: "netpicker/tester-frontend"
+    tag: "2.8-rc"
     pullPolicy: IfNotPresent
   gitd:
     repository: "netpicker/gitd"
-    tag: "2.7.6"
+    tag: "2.8-rc"
     pullPolicy: IfNotPresent
   gitdctrl:
     repository: "netpicker/gitdctrl"
-    tag: "2.7.6"
-    pullPolicy: IfNotPresent
-  swagger:
-    repository: "swaggerapi/swagger-ui"
-    tag: "latest"
-    pullPolicy: IfNotPresent
-  frontend:
-    repository: "netpicker/tester-frontend"
-    tag: "2.7.6"
+    tag: "2.8-rc"
     pullPolicy: IfNotPresent
   kibbitzer:
     repository: "netpicker/kibbitzer"
-    tag: "2.7.6"
+    tag: "2.8-rc"
     pullPolicy: IfNotPresent
-  agent:
-    repository: "netpicker/agent"
-    tag: "2.7.6"
+  minio:
+    registry: "docker.io"
+    repository: "minio/minio"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  redis:
+    registry: "docker.io"
+    repository: "redis"
+    tag: 7-alpine3.21
+    pullPolicy: IfNotPresent
+  swagger:
+    registry: "docker.io"
+    repository: "swaggerapi/swagger-ui"
+    tag: "latest"
     pullPolicy: IfNotPresent
   syslogng:
     repository: "netpicker/syslog-ng"
-    tag: "2.7.6"
+    tag: "2.8-rc"
     pullPolicy: IfNotPresent
   transferium:
     repository: "netpicker/transferium"
@@ -235,6 +242,16 @@ agent:
   persistence:
     enabled: true
     size: 1Gi
+
+minio:
+  enabled: true
+  root_user: admin
+  persistence:
+    enabled: true
+    size: 4Gi
+  service:
+    minio: 9000
+    type: ClusterIP
 
 # Syslog-ng configuration
 syslogng:

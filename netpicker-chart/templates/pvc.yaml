@@ -168,4 +168,24 @@ spec:
   resources:
     requests:
       storage: {{ .Values.syslogng.persistence.size }}
+---
+{{- end }}
+
+{{- if and .Values.minio.enabled .Values.minio.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "netpicker.minio.fullname" . }}-data
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.minio.persistence.size }}
+---
 {{- end }}

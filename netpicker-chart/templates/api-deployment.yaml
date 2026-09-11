@@ -28,17 +28,18 @@ spec:
         {{- if .Values.volumePermissions.enabled }}
         {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/policy-data")) | nindent 8 }}
         {{- end }}
-        - name: wait-for-db-and-migrations
-          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
-          command:
-            - /bin/sh
-            - -c
-            - wait-for-db
-          env:
-            {{ include "netpicker.redis" . | nindent 12 }}
-            {{ include "netpicker.dbConfig" . | nindent 12 }}
-            - name: alembic_version
-              value: {{ .Values.api.alembicVersion | quote }}
+        {{- include "netpicker.wait-for-db" . | nindent 8 }}
+{{/*        - name: wait-for-db-and-migrations*/}}
+{{/*          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}*/}}
+{{/*          command:*/}}
+{{/*            - /bin/sh*/}}
+{{/*            - -c*/}}
+{{/*            - wait-for-db*/}}
+{{/*          env:*/}}
+{{/*            {{ include "netpicker.redis" . | nindent 12 }}*/}}
+{{/*            {{ include "netpicker.dbConfig" . | nindent 12 }}*/}}
+{{/*            - name: alembic_version*/}}
+{{/*              value: {{ .Values.api.alembicVersion | quote }}*/}}
       containers:
         - name: api
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
@@ -77,6 +78,15 @@ spec:
             - name: GIT_COMMITTER_EMAIL
               value: {{ .Values.api.gitCommitterEmail | quote }}
             {{- end }}
+
+            - name: S3_ACCESS_KEY_ID
+              value: {{ .Values.minio.root_user | quote }}
+
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: MINIO_ROOT_PASSWORD
 
           ports:
             - name: http

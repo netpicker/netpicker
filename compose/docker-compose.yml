@@ -6,6 +6,8 @@ x-api: &api_common_no_deps
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
     PROXY_SSL_VERIFY: 0
+    S3_SECRET_ACCESS_KEY: "$MINIO_ROOT_PASSWORD"
+
   # Set this to the GID of the docker group on the host so the api container
   # can access /var/run/docker.sock. Find it with: getent group docker | cut -d: -f3
   # (on macOS: stat -f '%g' /var/run/docker.sock)
@@ -18,16 +20,18 @@ x-api: &api_common_no_deps
 x-api-deps: &api_common
   <<: *api_common_no_deps
   depends_on:
-    redis:
-      condition: service_healthy
     db:
       condition: service_healthy
+    db_migration:
+      condition: service_completed_successfully
     gitd:
       condition: service_healthy
     gitdctrl:
       condition: service_healthy
-    db_migration:
-      condition: service_completed_successfully
+    minio:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
 
 services:
   agent:
@@ -81,7 +85,29 @@ services:
     restart: always
     command: /run-celery
     healthcheck:
-      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5"]
+      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2"]
+      # :timeout: 4s
+      start_period: 15s
+      interval: 30s
+
+  committer:
+    <<: *api_common
+    depends_on:
+      api:
+        condition: service_healthy
+    container_name: committer
+    labels:
+      netpicker.io: service
+      service.netpicker.io: celery
+    restart: always
+    command: /run-celery
+    environment:
+      CELERY_QUEUES: config_commit
+      CELERY_CONCURRENCY: 2
+      WITHOUT_BEAT: 1
+    healthcheck:
+      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2"]
+      # timeout: 4s
       start_period: 15s
       interval: 30s
 
@@ -91,7 +117,7 @@ services:
     labels:
       netpicker.io: service
     environment:
-      POSTGRES_PASSWORD: s3rgts0p!
+      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
     volumes:
       - pg_data:/var/lib/postgresql/data
     restart: always
@@ -119,6 +145,12 @@ services:
       netpicker.io: service
       service.netpicker.io: front-end
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 1 -O /dev/null http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 2s
+      retries: 2
+      start_period: 10s
     ports:
       - "80:80"
     volumes:
@@ -193,6 +225,22 @@ services:
       - api
       - redis
 
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: "$MINIO_ROOT_PASSWORD"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   redis:
     image: redis:7-alpine3.21
     container_name: redis
@@ -229,6 +277,12 @@ services:
     volumes:
       - syslog:/var/lib/syslog-ng
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "syslog-ng-ctl stats >/dev/null 2>&1"]
+      start_period: 15s
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       - agent
 
@@ -260,6 +314,7 @@ volumes:
   dc-vol:
   git:
   kibbitzer:
+  minio_data:
   pg_data:
   policy-data:
   redis:

@@ -117,7 +117,7 @@ services:
     labels:
       netpicker.io: service
     environment:
-      POSTGRES_PASSWORD: s3rgts0p!image_registry=docker.io
+      POSTGRES_PASSWORD: s3rgts0p!
     volumes:
       - pg_data:/var/lib/postgresql/data
     restart: always

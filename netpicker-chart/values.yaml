@@ -73,7 +73,7 @@ images:
     tag: "2.8-rc"
     pullPolicy: IfNotPresent
   minio:
-    registry: "docker.io"
+    registry: "quay.io"
     repository: "minio/minio"
     tag: "latest"
     pullPolicy: IfNotPresent

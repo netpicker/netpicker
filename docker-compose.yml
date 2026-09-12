@@ -226,7 +226,7 @@ services:
       - redis
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: ""

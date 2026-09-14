@@ -11,7 +11,7 @@ x-config-s3: &config_s3
 
 
 x-api: &api_common_no_deps
-  image: "netpicker/api:rc"
+  image: "netpicker/api:2.8-rc"
   <<: *env_files
   environment:
     alembic_version: "78239c9184d4"
@@ -50,7 +50,7 @@ services:
   agent:
     <<: *env_files
     hostname: agent
-    image: "netpicker/agent:rc"
+    image: "netpicker/agent:2.8-rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -179,7 +179,7 @@ services:
 
   frontend:
     <<: *env_files
-    image: "netpicker/tester-frontend:rc"
+    image: "netpicker/tester-frontend:2.8-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -201,7 +201,7 @@ services:
 
   gitd:
     <<: *env_files
-    image: "netpicker/gitd:rc"
+    image: "netpicker/gitd:2.8-rc"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -219,7 +219,7 @@ services:
 
   gitdctrl:
     <<: *env_files
-    image: "netpicker/gitdctrl:rc"
+    image: "netpicker/gitdctrl:2.8-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -235,7 +235,7 @@ services:
 
   kibbitzer:
     <<: *env_files
-    image: "netpicker/kibbitzer:rc"
+    image: "netpicker/kibbitzer:2.8-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -318,7 +318,7 @@ services:
 
   syslog-ng:
     <<: *env_files
-    image: "netpicker/syslog-ng:rc"
+    image: "netpicker/syslog-ng:2.8-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service

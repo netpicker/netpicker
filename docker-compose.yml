@@ -1,20 +1,14 @@
-x-env-file: &env_files
-  env_file:
-    - path: ".env.latest"
-      required: true
-    - path: .env
-      required: false
-
 x-config-s3: &config_s3
   S3_SERVICE: minio:9000
-  S3_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
+  S3_SECRET_ACCESS_KEY: "minio-S3cret-key.!"
 
 
 x-api: &api_common_no_deps
-  image: "${image_api}"
-  <<: *env_files
+  image: "netpicker/api:rc"
+
   environment:
-    alembic_version: "${alembic_version}"
+    COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
+    alembic_version: "78239c9184d4"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
@@ -48,9 +42,8 @@ x-api-deps: &api_common
 
 services:
   agent:
-    <<: *env_files
     hostname: agent
-    image: "${image_agent}"
+    image: "netpicker/agent:rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -150,13 +143,12 @@ services:
       interval: 30s
 
   db:
-    <<: *env_files
     image: netpicker/db
     container_name: db
     labels:
       netpicker.io: service
     environment:
-      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
+      POSTGRES_PASSWORD: s3rgts0p!
     volumes:
       - pg_data:/var/lib/postgresql/data
     restart: always
@@ -178,8 +170,7 @@ services:
 
 
   frontend:
-    <<: *env_files
-    image: "${image_frontend}"
+    image: "netpicker/tester-frontend:rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -200,8 +191,7 @@ services:
 
 
   gitd:
-    <<: *env_files
-    image: "${image_gitd}"
+    image: "netpicker/gitd:rc"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -218,8 +208,7 @@ services:
 
 
   gitdctrl:
-    <<: *env_files
-    image: "${image_gitdctrl}"
+    image: "netpicker/gitdctrl:rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -234,8 +223,7 @@ services:
 
 
   kibbitzer:
-    <<: *env_files
-    image: "${image_kibbitzer}"
+    image: "netpicker/kibbitzer:rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -269,14 +257,12 @@ services:
       - redis
 
   minio:
-    <<: *env_files
     image: quay.io/minio/minio:latest
     labels:
       netpicker.io: service
-      service.netpicker.io: minio
     environment:
       MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
+      MINIO_ROOT_PASSWORD: "minio-S3cret-key.!"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -289,7 +275,6 @@ services:
       start_period: 5s
 
   redis:
-    <<: *env_files
     image: redis:7-alpine3.21
     container_name: redis
     labels:
@@ -320,8 +305,7 @@ services:
 
 
   syslog-ng:
-    <<: *env_files
-    image: "${image_syslog_ng}"
+    image: "netpicker/syslog-ng:rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service

@@ -1,10 +1,3 @@
-x-env-file: &env_files
-  env_file:
-    - path: netpicker.env
-      required: true
-    - path: .env
-      required: false
-
 x-config-s3: &config_s3
   S3_SERVICE: minio:9000
   S3_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
@@ -12,8 +5,9 @@ x-config-s3: &config_s3
 
 x-api: &api_common_no_deps
   image: "${image_api}"
-  <<: *env_files
+
   environment:
+    COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
     alembic_version: "${alembic_version}"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
@@ -48,7 +42,6 @@ x-api-deps: &api_common
 
 services:
   agent:
-    <<: *env_files
     hostname: agent
     image: "${image_agent}"
     container_name: agent
@@ -135,7 +128,7 @@ services:
     container_name: committer
     labels:
       netpicker.io: service
-      service.netpicker.io: celery
+      service.netpicker.io: committer
     restart: always
     command: /run-celery
     environment:
@@ -150,7 +143,6 @@ services:
       interval: 30s
 
   db:
-    <<: *env_files
     image: netpicker/db
     container_name: db
     labels:
@@ -178,7 +170,6 @@ services:
 
 
   frontend:
-    <<: *env_files
     image: "${image_frontend}"
     container_name: frontend
     labels:
@@ -200,7 +191,6 @@ services:
 
 
   gitd:
-    <<: *env_files
     image: "${image_gitd}"
     container_name: gitd
     labels:
@@ -218,7 +208,6 @@ services:
 
 
   gitdctrl:
-    <<: *env_files
     image: "${image_gitdctrl}"
     container_name: gitdctrl
     labels:
@@ -234,7 +223,6 @@ services:
 
 
   kibbitzer:
-    <<: *env_files
     image: "${image_kibbitzer}"
     container_name: kibbitzer
     labels:
@@ -269,8 +257,9 @@ services:
       - redis
 
   minio:
-    <<: *env_files
     image: quay.io/minio/minio:latest
+    labels:
+      netpicker.io: service
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
@@ -286,7 +275,6 @@ services:
       start_period: 5s
 
   redis:
-    <<: *env_files
     image: redis:7-alpine3.21
     container_name: redis
     labels:
@@ -317,7 +305,6 @@ services:
 
 
   syslog-ng:
-    <<: *env_files
     image: "${image_syslog_ng}"
     container_name: syslog-ng
     labels:

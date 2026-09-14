@@ -1,3 +1,10 @@
+x-env-file: &env_files
+  env_file:
+    - path: netpicker.env
+      required: true
+    - path: .env
+      required: false
+
 x-config-s3: &config_s3
   S3_SERVICE: minio:9000
   S3_SECRET_ACCESS_KEY: "minio-S3cret-key.!"
@@ -5,6 +12,7 @@ x-config-s3: &config_s3
 
 x-api: &api_common_no_deps
   image: "netpicker/api:2.8-rc"
+  <<: *env_files
   environment:
     alembic_version: "78239c9184d4"
     CLI_PROXY_HOST: agent
@@ -33,13 +41,14 @@ x-api-deps: &api_common
       condition: service_healthy
     gitdctrl:
       condition: service_healthy
-    minio:
-      condition: service_healthy
+    # minio:
+    #   condition: service_healthy
     redis:
       condition: service_healthy
 
 services:
   agent:
+    <<: *env_files
     hostname: agent
     image: "netpicker/agent:2.8-rc"
     container_name: agent
@@ -143,6 +152,7 @@ services:
       interval: 30s
 
   db:
+    <<: *env_files
     image: netpicker/db
     container_name: db
     labels:
@@ -170,6 +180,7 @@ services:
 
 
   frontend:
+    <<: *env_files
     image: "netpicker/tester-frontend:2.8-rc"
     container_name: frontend
     labels:
@@ -191,6 +202,7 @@ services:
 
 
   gitd:
+    <<: *env_files
     image: "netpicker/gitd:2.8-rc"
     container_name: gitd
     labels:
@@ -208,6 +220,7 @@ services:
 
 
   gitdctrl:
+    <<: *env_files
     image: "netpicker/gitdctrl:2.8-rc"
     container_name: gitdctrl
     labels:
@@ -223,6 +236,7 @@ services:
 
 
   kibbitzer:
+    <<: *env_files
     image: "netpicker/kibbitzer:2.8-rc"
     container_name: kibbitzer
     labels:
@@ -257,6 +271,7 @@ services:
       - redis
 
   minio:
+    <<: *env_files
     image: quay.io/minio/minio:latest
     environment:
       MINIO_ROOT_USER: admin
@@ -273,6 +288,7 @@ services:
       start_period: 5s
 
   redis:
+    <<: *env_files
     image: redis:7-alpine3.21
     container_name: redis
     labels:
@@ -303,6 +319,7 @@ services:
 
 
   syslog-ng:
+    <<: *env_files
     image: "netpicker/syslog-ng:2.8-rc"
     container_name: syslog-ng
     labels:

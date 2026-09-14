@@ -1,6 +1,6 @@
 x-env-file: &env_files
   env_file:
-    - path: ".env.pinned"
+    - path: "${NETPICKER_ENV}"
       required: true
     - path: .env
       required: false

@@ -45,6 +45,8 @@ spec:
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST
               value: {{ .Values.api.cliProxyHost | quote }}
+            - name: GIT_REPO_MANAGER
+              value: '["{{ include "netpicker.gitd.fullname" . }}", {{ .Values.gitdctrl.service.port }}]'
             - name: LOG_LEVEL
               value: {{ .Values.celery.logLevel | quote }}
             - name: UVICORN_ROOT_PATH
@@ -54,13 +56,17 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.global.secretConfig | default "default" }}
                   key: JWT_SECRET
+            - name: S3_ACCESS_KEY_ID
+              value: {{ .Values.minio.root_user | quote }}
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: MINIO_ROOT_PASSWORD
+
           volumeMounts:
             - name: policy-data
               mountPath: /data
-#            - name: transferium
-#              mountPath: /transferium
-#            - name: dc-vol
-#              mountPath: /dc-vol
           livenessProbe:
             exec:
               command:
@@ -77,12 +83,6 @@ spec:
         - name: policy-data
           persistentVolumeClaim:
             claimName: {{ include "netpicker.api.fullname" . }}-data
-#        - name: transferium
-#          persistentVolumeClaim:
-#            claimName: {{ include "netpicker.fullname" . }}-transferium
-#        - name: dc-vol
-#          persistentVolumeClaim:
-#            claimName: {{ include "netpicker.fullname" . }}-dc-vol
       securityContext:
         fsGroup: 911
 {{- end }}

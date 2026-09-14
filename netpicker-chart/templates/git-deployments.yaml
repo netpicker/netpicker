@@ -22,6 +22,11 @@ spec:
         netpicker.io: service
         service.netpicker.io: gitd
     spec:
+      securityContext:
+          sysctls:
+            - name: net.ipv4.ip_unprivileged_port_start
+              value: "80"
+
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
       initContainers:
         {{- if .Values.volumePermissions.enabled }}
@@ -40,6 +45,29 @@ spec:
               mountPath: /git
           resources:
             {{- toYaml .Values.gitd.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true              # You can still be a non-root user
+            runAsUser: 911                  # Standard Nginx user UID
+
+        - name: gitd-http
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.gitd) }}
+          args:
+            - "/entrypoint"
+            - "http"
+          imagePullPolicy: {{ .Values.images.gitd.pullPolicy }}
+          ports:
+            - name: gitd-http
+              containerPort: {{ .Values.gitd.service.httpPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: git
+              mountPath: /git
+          resources:
+            {{- toYaml .Values.gitd.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true              # You can still be a non-root user
+            runAsUser: 911                  # Standard Nginx user UID
+
         - name: gitdctrl
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.gitdctrl) }}
           imagePullPolicy: {{ .Values.images.gitdctrl.pullPolicy }}
@@ -51,8 +79,11 @@ spec:
             - name: git
               mountPath: /git
           livenessProbe:
-            tcpSocket:
-              port: {{ .Values.gitdctrl.service.port }}
+            exec:
+              command:
+                - git
+                - ls-remote
+                - "git://127.0.0.1/healthcheck.git"
             initialDelaySeconds: 5
             periodSeconds: 5
           readinessProbe:
@@ -62,12 +93,14 @@ spec:
             periodSeconds: 5
           resources:
             {{- toYaml .Values.gitdctrl.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true              # You can still be a non-root user
+            runAsUser: 911                  # Standard Nginx user UID
       volumes:
         - name: git
           persistentVolumeClaim:
             claimName: {{ include "netpicker.gitd.fullname" . }}-data
-      securityContext:
-        fsGroup: 911
+
 ---
 apiVersion: v1
 kind: Service
@@ -83,6 +116,10 @@ spec:
       targetPort: gitd
       protocol: TCP
       name: gitd
+    - port: {{ .Values.gitd.service.httpPort }}
+      targetPort: gitd-http
+      protocol: TCP
+      name: gitd-http
     - port: {{ .Values.gitdctrl.service.port }}
       targetPort: gitdctrl
       protocol: TCP

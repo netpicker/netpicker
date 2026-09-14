@@ -179,6 +179,7 @@ gitd:
   service:
     type: NodePort
     port: 9418
+    httpPort: 80
     nodePort: 30918  # Optional: specify a specific NodePort (30000-32767 range)
   resources: {}
 

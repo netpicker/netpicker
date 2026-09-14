@@ -1,3 +1,8 @@
+x-config-s3: &config_s3
+  S3_SERVICE: minio:9000
+  S3_SECRET_ACCESS_KEY: "minio-S3cret-key.!"
+
+
 x-api: &api_common_no_deps
   image: "netpicker/api:2.8-rc"
   environment:
@@ -6,7 +11,7 @@ x-api: &api_common_no_deps
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
     PROXY_SSL_VERIFY: 0
-    S3_SECRET_ACCESS_KEY: "minio-S3cret-key.!"
+    <<: *config_s3
 
   # Set this to the GID of the docker group on the host so the api container
   # can access /var/run/docker.sock. Find it with: getent group docker | cut -d: -f3
@@ -73,6 +78,31 @@ services:
       retries: 5
       timeout: 10s
 
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:latest
+    container_name: cadvisor
+    restart: always
+    volumes:
+      - /:/rootfs:ro
+      - /dev/disk/:/dev/disk:ro
+      - /sys:/sys:ro
+      - /var/run:/var/run:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    cpus: "0.5"
+    mem_limit: 256m
+    mem_reservation: 64m
+    read_only: true
+
+
   celery:
     <<: *api_common
     depends_on:
@@ -102,6 +132,7 @@ services:
     restart: always
     command: /run-celery
     environment:
+      <<: *config_s3
       CELERY_QUEUES: config_commit
       CELERY_CONCURRENCY: 2
       WITHOUT_BEAT: 1
@@ -171,7 +202,7 @@ services:
     volumes:
       - git:/git
     healthcheck:
-      test: ["CMD", "nc", "-vz", "localhost", "9418"]
+      test: ["CMD", "git", "ls-remote", "git://127.0.0.1/healthcheck.git"]
       start_period: 15s
       interval: 5s
 
@@ -263,6 +294,13 @@ services:
     restart: always
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 1 -O /dev/null http://127.0.0.1:8080 || exit 1"]
+      interval: 10s
+      timeout: 2s
+      retries: 2
+      start_period: 10s
+
 
   syslog-ng:
     image: "netpicker/syslog-ng:2.8-rc"
@@ -286,28 +324,6 @@ services:
     depends_on:
       - agent
 
-  cadvisor:
-    image: ghcr.io/google/cadvisor:latest
-    container_name: cadvisor
-    restart: always
-    volumes:
-      - /:/rootfs:ro
-      - /dev/disk/:/dev/disk:ro
-      - /sys:/sys:ro
-      - /var/run:/var/run:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-
-    cpus: "0.5"
-    mem_limit: 256m
-    mem_reservation: 64m
-    read_only: true
 
 volumes:
   config:

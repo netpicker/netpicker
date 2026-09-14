@@ -98,14 +98,12 @@ services:
       - /sys:/sys:ro
       - /var/run:/var/run:ro
       - /var/lib/docker/:/var/lib/docker:ro
-
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
-
     cpus: "0.5"
     mem_limit: 256m
     mem_reservation: 64m

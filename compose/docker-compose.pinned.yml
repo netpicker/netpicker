@@ -62,7 +62,7 @@ services:
     healthcheck:
       test: "echo LST | nc -v 127.0.0.1 8765"
       start_period: 12s
-      interval: 10s
+      interval: 30s
 
   api:
     <<: *api_common
@@ -76,7 +76,7 @@ services:
     healthcheck:
       test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/api/v1/status').raise_for_status()"]
       start_period: 60s
-      interval: 5s
+      interval: 60s
       retries: 5
       timeout: 10s
 
@@ -93,7 +93,7 @@ services:
       - /var/lib/docker/:/var/lib/docker:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
-      interval: 30s
+      interval: 60s
       timeout: 5s
       retries: 3
       start_period: 15s
@@ -178,7 +178,7 @@ services:
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "wget -q -T 1 -O /dev/null http://127.0.0.1/health || exit 1"]
-      interval: 10s
+      interval: 30s
       timeout: 2s
       retries: 2
       start_period: 10s
@@ -204,7 +204,7 @@ services:
     healthcheck:
       test: ["CMD", "git", "ls-remote", "git://127.0.0.1/healthcheck.git"]
       start_period: 15s
-      interval: 5s
+      interval: 30s
 
 
   gitdctrl:
@@ -218,7 +218,7 @@ services:
     healthcheck:
       test: echo "PING" | nc -v localhost 9419
       start_period: 5s
-      interval: 5s
+      interval: 30s
     restart: always
 
 
@@ -269,7 +269,7 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
+      interval: 60s
       timeout: 5s
       retries: 5
       start_period: 5s
@@ -285,6 +285,7 @@ services:
     restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 60s
 
 
   swagger:
@@ -298,7 +299,7 @@ services:
       - api
     healthcheck:
       test: ["CMD-SHELL", "wget -q -T 1 -O /dev/null http://127.0.0.1:8080 || exit 1"]
-      interval: 10s
+      interval: 60s
       timeout: 2s
       retries: 2
       start_period: 10s
@@ -320,7 +321,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "syslog-ng-ctl stats >/dev/null 2>&1"]
       start_period: 15s
-      interval: 30s
+      interval: 60s
       timeout: 5s
       retries: 3
     depends_on:

@@ -4,36 +4,16 @@ This Helm chart deploys the Netpicker application on a Kubernetes cluster.
 
 ## Prerequisites
 
-- Kubernetes 1.21+
+- Kubernetes 1.19+
 - Helm 3.2.0+
-- Longhorn (instructions below)
-- An NFS client on every node, but only if you set the shared volumes to
-  `ReadWriteMany`. Install `nfs-common` on Debian and Ubuntu, or `nfs-utils`
-  on RHEL and Rocky. See [Persistence](#persistence).
+- Local Path Provisioner (instructions below)
 
-## Installing Longhorn
+## Installing the Local Path Provisioner
 
-Longhorn supplies the `ReadWriteOnce` block volumes that the chart makes by
-default. It also supplies the `ReadWriteMany` shared volumes, which you need
-only to spread the pods over more than one node. Install Longhorn before you
-install this chart:
+Before installing the chart, you need to install the Local Path Provisioner:
 
 ```bash
-helm repo add longhorn https://charts.longhorn.io
-helm repo update
-helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace
-```
-
-Longhorn makes a storage class with the name `longhorn`. The value
-`global.storageClass` points to it.
-
-Longhorn keeps 3 copies of each volume by default. A cluster with fewer than 3
-nodes keeps the volumes in the `Degraded` state. On a small cluster, set the
-number of copies to the number of nodes:
-
-```bash
-helm install longhorn longhorn/longhorn --namespace longhorn-system \
-  --create-namespace --set defaultSettings.defaultReplicaCount=1
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.31/deploy/local-path-storage.yaml
 ```
 
 ## Installing the Chart
@@ -46,7 +26,7 @@ helm install netpicker .
 
 The command deploys Netpicker on the Kubernetes cluster with default configuration. The [Parameters](#parameters) section lists the parameters that can be configured during installation.
 
-Make sure you have installed Longhorn as described in the [Installing Longhorn](#installing-longhorn) section before deploying this chart.
+Make sure you have installed the Local Path Provisioner as described in the [Installing the Local Path Provisioner](#installing-the-local-path-provisioner) section before deploying this chart.
 
 ## Uninstalling the Chart
 
@@ -68,19 +48,19 @@ You can create your own secret that uses specialized secret stores to retrieve t
 ### Global parameters
 
 | Name                      | Description                                     | Value             |
-| ------------------------- | ----------------------------------------------- | ----------------- |
+|---------------------------|-------------------------------------------------|-------------------|
 | `global.imageRegistry`    | Global Docker image registry                    | `""`              |
 | `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
-| `global.storageClass`     | Default StorageClass for every volume that sets no class of its own | `"longhorn"`      |
+| `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"local-storage"` |
 | `global.secretConfig`     | Global name of the secret used to set ENV       | `"default"`       |
 
 ### Storage Class parameters
 
 | Name                                | Description                                 | Value                   |
 | ----------------------------------- | ------------------------------------------- | ----------------------- |
-| `storageClass.enabled`              | Enable the creation of the storage class    | `false`                 |
+| `storageClass.enabled`              | Enable the creation of the storage class    | `true`                  |
 | `storageClass.name`                 | Name of the storage class                   | `local-storage`         |
-| `storageClass.isDefault`            | Set as the default storage class            | `false`                 |
+| `storageClass.isDefault`            | Set as the default storage class            | `true`                  |
 | `storageClass.provisioner`          | Provisioner for dynamic volume provisioning | `rancher.io/local-path` |
 | `storageClass.parameters`           | Parameters for the provisioner              | `{}`                    |
 | `storageClass.volumeBindingMode`    | Volume binding mode                         | `WaitForFirstConsumer`  |
@@ -100,7 +80,7 @@ You can create your own secret that uses specialized secret stores to retrieve t
 | Name                    | Description                | Value           |
 | ----------------------- | -------------------------- | --------------- |
 | `images.api.repository` | API image repository       | `netpicker/api` |
-| `images.api.tag`        | API image tag              | `2.7.6`         |
+| `images.api.tag`        | API image tag              | `2.6.2`         |
 | `images.api.pullPolicy` | API image pull policy      | `IfNotPresent`  |
 | `images.db.repository`  | Database image repository  | `netpicker/db`  |
 | `images.db.tag`         | Database image tag         | `latest`        |
@@ -116,8 +96,6 @@ For other image parameters, please refer to the values.yaml file.
 | `db.postgresPassword`    | PostgreSQL password                               | `s3rgts0p!` |
 | `db.persistence.enabled` | Enable persistence using PVC                      | `true`      |
 | `db.persistence.size`    | PVC Storage Request for PostgreSQL volume         | `8Gi`       |
-| `db.persistence.accessMode` | Access mode for the PostgreSQL volume          | `ReadWriteOnce` |
-| `db.persistence.storageClass` | StorageClass for the PostgreSQL volume. Empty means `global.storageClass` | `""` |
 | `db.service.type`        | Kubernetes Service type                           | `ClusterIP` |
 | `db.service.port`        | PostgreSQL service port                           | `5432`      |
 | `db.resources`           | The resources limits for the PostgreSQL container | `{}`        |
@@ -125,7 +103,7 @@ For other image parameters, please refer to the values.yaml file.
 ### API parameters
 
 | Name                      | Description                                | Value          |
-| ------------------------- | ------------------------------------------ | -------------- |
+|---------------------------|--------------------------------------------|----------------|
 | `api.enabled`             | Enable API deployment                      | `true`         |
 | `api.alembicVersion`      | Alembic version                            | `3201afd119b9` |
 | `api.jwtSecret`           | JWT secret (key)                           | `<random>`     |
@@ -141,147 +119,30 @@ For other parameters, please refer to the values.yaml file.
 
 ### Persistence parameters
 
-| Name                              | Description                                 | Value           |
-| --------------------------------- | ------------------------------------------- | --------------- |
-| `persistence.accessMode`          | Access mode for the shared volumes          | `ReadWriteOnce` |
-| `persistence.storageClass`        | StorageClass for the shared volumes. Empty means `global.storageClass` | `""`            |
-| `persistence.dcVol.enabled`       | Enable persistence for the dc volume        | `true`          |
-| `persistence.dcVol.size`          | PVC Storage Request for the dc volume       | `1Gi`           |
-| `persistence.transferium.enabled` | Enable persistence for transferium          | `true`          |
-| `persistence.transferium.size`    | PVC Storage Request for transferium volume  | `1Gi`           |
-| `persistence.secret.enabled`      | Enable the shared secrets volume            | `true`          |
-| `persistence.secret.size`         | PVC Storage Request for the secrets volume  | `1Gi`           |
+| Name                              | Description                                | Value           |
+| --------------------------------- | ------------------------------------------ | --------------- |
+| `persistence.accessMode`          | Access mode for all PVCs                   | `ReadWriteOnce` |
+| `persistence.config.enabled`      | Enable persistence for config              | `true`          |
+| `persistence.config.size`         | PVC Storage Request for config volume      | `1Gi`           |
+| `persistence.transferium.enabled` | Enable persistence for transferium         | `true`          |
+| `persistence.transferium.size`    | PVC Storage Request for transferium volume | `1Gi`           |
 
 ## Configuration and installation details
 
-### Persistence
+### Persistence and Local Storage Provisioning
 
-The chart uses two groups of volumes.
+The Netpicker chart is configured to use local filesystem storage through a dynamic provisioner. It requires Rancher's Local Path Provisioner (`rancher.io/local-path`), which should be installed before deploying this chart as described in the [Installing the Local Path Provisioner](#installing-the-local-path-provisioner) section.
 
-**Shared volumes.** More than one pod mounts each of these volumes. They use
-the `persistence.accessMode` parameter and the `persistence.storageClass`
-parameter.
+If you prefer to use a different storage provisioner, you can modify the `storageClass` parameters accordingly.
 
-| Volume | Pods that mount it |
-| ------ | ------------------ |
-| `api-data` | api, celery, db-migration |
-| `dc-vol` | celery, kibbitzer, agent |
-| `gitd-data` | gitd, frontend |
-| `transferium` | celery, transferium |
-| `secret` | agent, kibbitzer |
+Other local storage provisioner options include:
 
-The default access mode is `ReadWriteOnce`. Such a volume attaches to one
-node, but all the pods on that node can mount it. **All the pods in the table
-above must therefore run on the same node.** A pod that Kubernetes puts on
-another node cannot attach the volume and stays in the `Pending` state. On a
-cluster with one worker node, this always holds. On a larger cluster, keep the
-pods together with a `nodeSelector` or with a node affinity rule.
+- `k8s.io/minikube-hostpath` for Minikube
+- `openebs.io/local` for OpenEBS Local PV
 
-With `ReadWriteOnce`, these deployments also use the `Recreate` update
-strategy. A rolling update starts the new pod before it stops the old one, and
-the new pod cannot attach the volume. `Recreate` stops the old pod first. The
-chart makes this change for you, and it costs a short interruption during an
-upgrade. With `ReadWriteMany`, the deployments keep the rolling update.
+The `WaitForFirstConsumer` volume binding mode ensures that volumes are created on the nodes where the pods are scheduled, which is important for local storage.
 
-To spread these pods over more than one node, set `ReadWriteMany`:
-
-```yaml
-persistence:
-  accessMode: "ReadWriteMany"
-```
-
-The storage system must supply that mode:
-
-- Longhorn starts an NFS share manager pod for each `ReadWriteMany` volume.
-  Every node then needs an NFS client. See [Prerequisites](#prerequisites).
-- Ceph and NetApp Trident serve `ReadWriteMany` from a different storage class
-  than `ReadWriteOnce`. Also set `persistence.storageClass`. See
-  [Other CSI storage systems](#other-csi-storage-systems).
-
-**Single writer volumes.** One pod mounts each of these volumes. Each one has
-its own access mode parameter, and the default value is `ReadWriteOnce`. Each
-one also has its own storage class parameter. Longhorn gives a block volume,
-which is the correct type for a database.
-
-| Volume | Access mode parameter | Storage class parameter |
-| ------ | --------------------- | ----------------------- |
-| db data | `db.persistence.accessMode` | `db.persistence.storageClass` |
-| `redis-data` | `redis.persistence.accessMode` | `redis.persistence.storageClass` |
-| `syslogng-data` | `syslogng.persistence.accessMode` | `syslogng.persistence.storageClass` |
-
-Each storage class parameter has the default value `""`, which means
-`global.storageClass`. Set one only if that volume needs another class.
-
-Do not put the database on a `ReadWriteMany` volume. PostgreSQL needs correct
-file locking, and an NFS share can damage the data.
-
-### Other CSI storage systems
-
-The chart works with any storage system that has a CSI driver, because it
-names the storage class in the values only. With the default access modes, one
-storage class for `ReadWriteOnce` volumes is enough:
-
-```yaml
-global:
-  storageClass: "ceph-block"
-```
-
-You need a second class only if you set the shared volumes to
-`ReadWriteMany`. Longhorn serves both access modes from one storage class, but
-Ceph and NetApp Trident do not. They serve each access mode from a different
-driver. Name the block class in `global.storageClass` and name the file class
-in `persistence.storageClass`.
-
-**Rook-Ceph**, with the class names of your cluster:
-
-```yaml
-global:
-  storageClass: "ceph-block"   # rbd.csi.ceph.com, ReadWriteOnce
-persistence:
-  accessMode: "ReadWriteMany"
-  storageClass: "cephfs"       # cephfs.csi.ceph.com, ReadWriteMany
-```
-
-**NetApp Trident**:
-
-```yaml
-global:
-  storageClass: "ontap-san"    # iSCSI or NVMe, ReadWriteOnce
-persistence:
-  accessMode: "ReadWriteMany"
-  storageClass: "ontap-nas"    # NFS, ReadWriteMany
-```
-
-Find the names of the classes in your cluster with this command:
-
-```bash
-kubectl get storageclass
-```
-
-To use the default storage class of the cluster, set `global.storageClass` to
-`""`. The chart then makes each claim with no `storageClassName` field.
-
-### Local storage instead of Longhorn
-
-You can run the chart on local storage, but on one node only. Local storage
-gives no `ReadWriteMany` volumes, so keep the default access modes. Set these
-values:
-
-```yaml
-global:
-  storageClass: "local-storage"
-storageClass:
-  enabled: true
-```
-
-Then install a local provisioner, for example Rancher's Local Path Provisioner:
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.31/deploy/local-path-storage.yaml
-```
-
-All pods must then run on the same node, because a local volume exists on one
-node only. Pods that cannot reach their volume stay in the `Pending` state.
+All persistent volume claims are configured to use the `ReadWriteOnce` access mode by default, which is compatible with local storage. This can be changed by setting the `persistence.accessMode` parameter.
 
 ### Ingress
 

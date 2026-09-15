@@ -10,9 +10,6 @@ metadata:
     service.netpicker.io: api
 spec:
   replicas: 1
-  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
-  {{- . | nindent 2 }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -25,30 +22,13 @@ spec:
         netpicker.io: service
         service.netpicker.io: api
     spec:
+      enableServiceLinks: false
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
       initContainers:
-        - name: wait-for-db-and-migrations
-          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.db) }}
-          command:
-          - /bin/sh
-          - -c
-          - |
-            echo "Waiting for DB to be reachable and migrated..."
-            QUERY="SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'alembic_version')
-                   AND EXISTS (SELECT FROM alembic_version WHERE version_num = '${alembic_version}');"
-            until [ "$(psql -h db -U netpicker -tAc "$QUERY" 2>/dev/null || echo "f")" = "t" ]; do
-              echo "DB not ready or migration not found. Retrying in 2s..."
-              sleep 2
-            done
-            echo "Database is ready. Starting app!"
-          env:
-            - name: alembic_version
-              value: {{ .Values.api.alembicVersion | quote }}
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.global.secretConfig | default "default" }}
-                  key: DBPASSWORD
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/policy-data")) | nindent 8 }}
+        {{- end }}
+        {{- include "netpicker.wait-for-db" . | nindent 8 }}
       containers:
         - name: api
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
@@ -59,6 +39,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.global.secretConfig | default "default" }}
                   key: JWT_SECRET
+            {{ include "netpicker.redis" . | nindent 12 }}
+            {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST
@@ -86,6 +68,14 @@ spec:
               value: {{ .Values.api.gitCommitterEmail | quote }}
             {{- end }}
 
+            - name: S3_ACCESS_KEY_ID
+              value: {{ .Values.minio.root_user | quote }}
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: MINIO_ROOT_PASSWORD
+
           ports:
             - name: http
               containerPort: 8000
@@ -108,7 +98,9 @@ spec:
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
       volumes:
-        {{- include "netpicker.volume.policyData" . | nindent 8 }}
+        - name: policy-data
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.api.fullname" . }}-data
       securityContext:
         fsGroup: 911
 ---

@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "netpicker.celery.fullname" . }}
+  name: {{ include "netpicker.committer.fullname" . }}
   labels:
     {{- include "netpicker.labels" . | nindent 4 }}
     app.kubernetes.io/component: celery
@@ -13,14 +13,14 @@ spec:
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: celery
+      app.kubernetes.io/component: committer
   template:
     metadata:
       labels:
         {{- include "netpicker.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: celery
+        app.kubernetes.io/component: committer
         netpicker.io: service
-        service.netpicker.io: celery
+        service.netpicker.io: committer
     spec:
       enableServiceLinks: false
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
@@ -37,6 +37,10 @@ spec:
           env:
             {{ include "netpicker.redis" . | nindent 12 }}
             {{ include "netpicker.dbConfig" . | nindent 12 }}
+            - name: CELERY_QUEUES
+              value: config_commit
+            - name: WITHOUT_BEAT
+              value: "1"
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST
@@ -47,13 +51,19 @@ spec:
               value: {{ .Values.celery.logLevel | quote }}
             - name: UVICORN_ROOT_PATH
               value: {{ .Values.api.uvicornRootPath | quote }}
-            # - name: CELERY_BROKER_URL
-            #   value: "redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }}"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.global.secretConfig | default "default" }}
                   key: JWT_SECRET
+            - name: S3_ACCESS_KEY_ID
+              value: {{ .Values.minio.root_user | quote }}
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: MINIO_ROOT_PASSWORD
+
           volumeMounts:
             - name: policy-data
               mountPath: /data

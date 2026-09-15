@@ -1,0 +1,319 @@
+{{- if .Values.agent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.agent.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+    netpicker.io: service
+    service.netpicker.io: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+        netpicker.io: service
+        service.netpicker.io: agent
+    spec:
+      hostname: agent
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/dc-vol" "/secret")) | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: agent
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.agent) }}
+          imagePullPolicy: {{ .Values.images.agent.pullPolicy }}
+          env:
+            {{ include "netpicker.redis" . | nindent 12 }}
+            {{ include "netpicker.env" .Values.agent.env | nindent 12}}
+            - name: CLI_PROXY_ADDR
+              value: {{ .Values.agent.cliProxyAddr | quote }}
+            - name: SHARED_SSH_TTL
+              value: {{ .Values.agent.sharedSshTtl | quote }}
+            - name: NETPICKER_GIT_URL
+              value: "http://frontend/git-proxy"
+          envFrom:
+            - configMapRef:
+                name: {{ include "netpicker.fullname" . }}-tag-params
+          ports:
+            - name: vault
+              containerPort: {{ .Values.agent.service.portVault }}
+              protocol: TCP
+            - name: proxy
+              containerPort: {{ .Values.agent.service.portProxy }}
+              protocol: TCP
+          volumeMounts:
+            - name: secret
+              mountPath: /run/secrets
+            - name: dc-vol
+              mountPath: /dc-vol
+          livenessProbe:
+            tcpSocket:
+              port: 8765
+            initialDelaySeconds: 12
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 8765
+            initialDelaySeconds: 12
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+      volumes:
+        - name: secret
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.agent.fullname" . }}-data
+        - name: dc-vol
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-dc-vol
+      securityContext:
+        fsGroup: 911
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.agent.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  type: {{ .Values.agent.service.type }}
+  ports:
+    - port: {{ .Values.agent.service.portProxy }}
+      targetPort: proxy
+      protocol: TCP
+      name: proxy
+    - port: {{ .Values.agent.service.portVault }}
+      targetPort: vault
+      protocol: TCP
+      name: vault
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+{{- end }}
+---
+{{- if .Values.kibbitzer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.kibbitzer.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibbitzer
+    netpicker.io: service
+    service.netpicker.io: kibbitzer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: kibbitzer
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kibbitzer
+        netpicker.io: service
+        service.netpicker.io: kibbitzer
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/dc-vol")) | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: kibbitzer
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.kibbitzer) }}
+          imagePullPolicy: {{ .Values.images.kibbitzer.pullPolicy }}
+          env:
+            {{- if .Values.redis.password }}
+            - name: SHENV_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: REDIS_PASSWORD
+            {{- end }}
+            - name: LOG_LEVEL
+              value: {{ .Values.kibbitzer.logLevel | quote }}
+            - name: SHENV_API_URL
+              value: {{ .Values.kibbitzer.apiUrl | quote }}
+            - name: SHENV_API_TIMEOUT
+              value: {{ .Values.kibbitzer.apiTimeout | quote }}
+            - name: SHENV_PRIVILEGED_PLATFORMS
+              value: {{ .Values.kibbitzer.privilegedPlatforms | quote }}
+            {{- range $platform, $command := .Values.kibbitzer.showRunCommands }}
+            - name: SHENV_SHOW_RUN_{{ $platform }}
+              value: {{ $command | quote }}
+            {{- end }}
+            {{- range $platform, $command := .Values.kibbitzer.tagShowRunCommands }}
+            - name: SHENV_TAG_SHOW_RUN_{{ $platform }}
+              value: {{ $command | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "netpicker.fullname" . }}-tag-params
+          ports:
+            - name: kibbitzer
+              containerPort: 9696
+              protocol: TCP
+          volumeMounts:
+            - name: secret
+              mountPath: /run/secrets
+            - name: dc-vol
+              mountPath: /dc-vol
+{{- if .Values.transferium.enabled }}
+            - name: transferium
+              mountPath: /transferium
+{{- end }}
+
+          livenessProbe:
+            tcpSocket:
+              port: 9696
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 9696
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.kibbitzer.resources | nindent 12 }}
+      volumes:
+        - name: secret
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.kibbitzer.fullname" . }}-data
+        - name: dc-vol
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-dc-vol
+
+{{- if .Values.transferium.enabled }}
+        - name: transferium
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-transferium
+{{- end }}
+
+      securityContext:
+        fsGroup: 911
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.kibbitzer.fullname" . }}
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibbitzer
+spec:
+  type: {{ .Values.kibbitzer.service.type }}
+  ports:
+    - port: 9696
+      targetPort: kibbitzer
+      protocol: TCP
+      name: kibbitzer
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: kibbitzer
+{{- end }}
+---
+
+{{- if .Values.transferium.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netpicker.fullname" . }}-transferium
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: transferium
+    netpicker.io: service
+    service.netpicker.io: transferium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "netpicker.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: transferium
+  template:
+    metadata:
+      labels:
+        {{- include "netpicker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: transferium
+        netpicker.io: service
+        service.netpicker.io: transferium
+    spec:
+      {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/transferium")) | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: transferium
+          image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.transferium) }}
+          imagePullPolicy: {{ .Values.images.transferium.pullPolicy }}
+          env:
+            - name: FTP_PASV_ADDRESS
+              value: {{ .Values.transferium.ftpPasvAddress | quote }}
+            - name: FTP_PASV_PORTS
+              value: {{ .Values.transferium.ftpPasvPorts | quote }}
+          ports:
+            - name: ftp
+              containerPort: 21
+              protocol: TCP
+            - name: ftp-data
+              containerPort: 20
+              protocol: TCP
+            - name: tftp
+              containerPort: 69
+              protocol: UDP
+          volumeMounts:
+            - name: transferium
+              mountPath: /transferium
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/bin/healthcheck
+            initialDelaySeconds: 5
+            periodSeconds: 60
+          resources:
+            {{- toYaml .Values.transferium.resources | nindent 12 }}
+      volumes:
+        - name: transferium
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-transferium
+      securityContext:
+        fsGroup: 911
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netpicker.fullname" . }}-transferium
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: transferium
+spec:
+  type: {{ .Values.transferium.service.type }}
+  ports:
+    - port: 21
+      targetPort: ftp
+      protocol: TCP
+      name: ftp
+    - port: 20
+      targetPort: ftp-data
+      protocol: TCP
+      name: ftp-data
+    - port: 69
+      targetPort: tftp
+      protocol: UDP
+      name: tftp
+  selector:
+    {{- include "netpicker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: transferium
+{{- end }}

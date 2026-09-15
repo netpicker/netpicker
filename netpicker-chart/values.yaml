@@ -4,36 +4,39 @@
 global:
   imageRegistry: "docker.io"
   imagePullSecrets: []
-  # The storage class for every volume that sets no class of its own.
-  # Longhorn supplies ReadWriteOnce block volumes and ReadWriteMany shared
-  # volumes from this one class. Install Longhorn before you install this
-  # chart.
-  # Ceph and NetApp Trident serve the two access modes from two different
-  # classes. On those systems, name the block class here and name the file
-  # class in persistence.storageClass. See the README.
-  storageClass: "longhorn"
+  storageClass: "local-storage"
   secretConfig: "default"
 
-# Storage class configuration
-# Longhorn installs its own storage class, so this chart makes none.
-# Set enabled to true only if you replace Longhorn with a local storage
-# provisioner. Local storage gives no ReadWriteMany volumes. The shared
-# volumes then work on one node only.
-storageClass:
+
+volumePermissions:
   enabled: false
+  image:
+    registry: docker.io
+    repository: "alpine"
+    tag: latest
+  # The UID/GID to chown to
+  user: 911
+  group: 911
+  resources: {}
+
+# Storage class configuration
+storageClass:
+  enabled: true
   name: "local-storage"
-  isDefault: false
+  isDefault: true
   # Using local path provisioner for local filesystem storage
   # Other options for local storage:
   # - k8s.io/minikube-hostpath for Minikube
   # - rancher.io/local-path for Rancher's Local Path Provisioner
   # - openebs.io/local for OpenEBS Local PV
   provisioner: "rancher.io/local-path"
+  # provisioner: "k8s.io/minikube-hostpath"
   # Parameters specific to the local path provisioner
   parameters:
     # No specific parameters needed for basic local-path setup
   # WaitForFirstConsumer ensures the PV is created on the node where the pod is scheduled
   volumeBindingMode: "WaitForFirstConsumer"
+  # volumeBindingMode: "Immediate"
   reclaimPolicy: "Delete"
   allowVolumeExpansion: true
   mountOptions:
@@ -41,48 +44,55 @@ storageClass:
     - nodiratime
 
 images:
+  agent:
+    repository: "netpicker/agent"
+    tag: "2.8-rc"
+    pullPolicy: IfNotPresent
   api:
-    repository: netpicker/api
-    tag: "2.7.6"
+    repository: "netpicker/api"
+    tag: "2.8-rc"
     pullPolicy: IfNotPresent
   db:
-    repository: netpicker/db
+    repository: "netpicker/db"
+    tag: "18"
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: "netpicker/tester-frontend"
+    tag: "2.8-rc"
+    pullPolicy: IfNotPresent
+  gitd:
+    repository: "netpicker/gitd"
+    tag: "2.8-rc"
+    pullPolicy: IfNotPresent
+  gitdctrl:
+    repository: "netpicker/gitdctrl"
+    tag: "2.8-rc"
+    pullPolicy: IfNotPresent
+  kibbitzer:
+    repository: "netpicker/kibbitzer"
+    tag: "2.8-rc"
+    pullPolicy: IfNotPresent
+  minio:
+    registry: "quay.io"
+    repository: "minio/minio"
     tag: "latest"
     pullPolicy: IfNotPresent
   redis:
-    repository: redis
-    tag: "7-alpine3.21"
-    pullPolicy: IfNotPresent
-  gitd:
-    repository: netpicker/gitd
-    tag: "2.7.6"
-    pullPolicy: IfNotPresent
-  gitdctrl:
-    repository: netpicker/gitdctrl
-    tag: "2.7.6"
+    registry: "docker.io"
+    repository: "redis"
+    tag: 7-alpine3.21
     pullPolicy: IfNotPresent
   swagger:
-    repository: swaggerapi/swagger-ui
+    registry: "docker.io"
+    repository: "swaggerapi/swagger-ui"
     tag: "latest"
     pullPolicy: IfNotPresent
-  frontend:
-    repository: netpicker/tester-frontend
-    tag: "2.7.6"
-    pullPolicy: IfNotPresent
-  kibbitzer:
-    repository: netpicker/kibbitzer
-    tag: "2.7.6"
-    pullPolicy: IfNotPresent
-  agent:
-    repository: netpicker/agent
-    tag: "2.7.6"
-    pullPolicy: IfNotPresent
   syslogng:
-    repository: netpicker/syslog-ng
-    tag: "2.7.6"
+    repository: "netpicker/syslog-ng"
+    tag: "2.8-rc"
     pullPolicy: IfNotPresent
   transferium:
-    repository: netpicker/transferium
+    repository: "netpicker/transferium"
     tag: "latest"
     pullPolicy: IfNotPresent
 
@@ -100,16 +110,15 @@ tagParams:
 # Database configuration
 db:
   enabled: true
+  host: db
+  name: netpicker
+  port:
+  sslmode: prefer
+
   postgresPassword: "s3rgts0p!"
   persistence:
     enabled: true
     size: 8Gi
-    # PostgreSQL is a single writer, so this volume is never shared.
-    # Keep ReadWriteOnce. Do not put the database on an RWX file share
-    # such as NFS, because PostgreSQL needs correct file locking.
-    accessMode: "ReadWriteOnce"
-    # Storage class for this volume. Empty means global.storageClass.
-    storageClass: ""
   service:
     type: ClusterIP
     port: 5432
@@ -150,13 +159,10 @@ celery:
 # Redis configuration
 redis:
   enabled: true
+  password: true
   persistence:
     enabled: true
     size: 1Gi
-    # Redis is a single writer, so this volume is never shared.
-    accessMode: "ReadWriteOnce"
-    # Storage class for this volume. Empty means global.storageClass.
-    storageClass: ""
   service:
     type: ClusterIP
     port: 6379
@@ -173,7 +179,8 @@ gitd:
   service:
     type: NodePort
     port: 9418
-    nodePort: 30918 # Optional: specify a specific NodePort (30000-32767 range)
+    httpPort: 80
+    nodePort: 30918  # Optional: specify a specific NodePort (30000-32767 range)
   resources: {}
 
 # Git daemon control configuration
@@ -219,7 +226,9 @@ kibbitzer:
   service:
     type: ClusterIP
   resources: {}
-  # The kibbitzer mounts the shared secrets volume. See persistence.secret.
+  persistence:
+    enabled: true
+    size: 1Gi
 
 # Agent configuration
 agent:
@@ -231,7 +240,19 @@ agent:
     portVault: 8765
     portProxy: 9876
   resources: {}
-  # The agent mounts the shared secrets volume. See persistence.secret.
+  persistence:
+    enabled: true
+    size: 1Gi
+
+minio:
+  enabled: true
+  root_user: admin
+  persistence:
+    enabled: true
+    size: 4Gi
+  service:
+    minio: 9000
+    type: ClusterIP
 
 # Syslog-ng configuration
 syslogng:
@@ -244,16 +265,12 @@ syslogng:
   persistence:
     enabled: true
     size: 1Gi
-    # The syslog-ng server is a single writer, so this volume is never shared.
-    accessMode: "ReadWriteOnce"
-    # Storage class for this volume. Empty means global.storageClass.
-    storageClass: ""
   resources: {}
 
 # Transferium configuration (optional FTP/TFTP server)
 transferium:
   enabled: false
-  ftpPasvAddress: "" # Set to the IP where this runs
+  ftpPasvAddress: ""  # Set to the IP where this runs
   ftpPasvPorts: "31000-31015"
   service:
     type: NodePort
@@ -261,32 +278,16 @@ transferium:
 
 # Persistence configuration for shared volumes
 persistence:
-  # Access mode for the volumes that more than one pod mounts.
-  # The db, redis and syslog-ng volumes have their own access mode.
-  #
-  # ReadWriteOnce is the default. A ReadWriteOnce volume attaches to one node,
-  # but all the pods on that node can mount it. All the pods that share a
-  # volume must therefore run on the same node. A pod on another node stays in
-  # the Pending state.
-  #
-  # Set ReadWriteMany to spread these pods over more than one node. The storage
-  # system must supply that mode. Longhorn starts an NFS share manager pod for
-  # each ReadWriteMany volume, and every node then needs an NFS client. Ceph
-  # and NetApp Trident serve that mode from a different storage class, so also
-  # set persistence.storageClass. See the README.
-  accessMode: "ReadWriteOnce"
-  # Storage class for all the shared volumes: dc-vol, transferium, the api
-  # policy data, the gitd repositories and the secrets. Empty means
-  # global.storageClass. Set this only if the ReadWriteMany volumes need
-  # another class than the ReadWriteOnce volumes, as on Ceph or Trident.
-  storageClass: ""
+  accessMode: "ReadWriteMany"  # Access mode for all PVCs (ReadWriteOnce is compatible with local storage)
+  config:
+    enabled: true
+    size: 1Gi
   dcVol:
     enabled: true
     size: 1Gi
   transferium:
     enabled: true
     size: 1Gi
-  # The agent and the kibbitzer share this volume at /run/secrets.
-  secret:
-    enabled: true
-    size: 1Gi
+
+options:
+  enabled: false

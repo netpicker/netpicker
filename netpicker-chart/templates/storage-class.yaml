@@ -3,6 +3,7 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: {{ .Values.storageClass.name }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "netpicker.labels" . | nindent 4 }}
   {{- if .Values.storageClass.isDefault }}
@@ -21,4 +22,4 @@ allowVolumeExpansion: {{ .Values.storageClass.allowVolumeExpansion }}
 mountOptions:
   {{- toYaml . | nindent 2 }}
 {{- end }}
-{{- end }} 
+{{- end }}

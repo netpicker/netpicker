@@ -10,9 +10,6 @@ metadata:
     service.netpicker.io: front-end
 spec:
   replicas: 1
-  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
-  {{- . | nindent 2 }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -26,21 +23,36 @@ spec:
         service.netpicker.io: front-end
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+
+      {{- if .Values.volumePermissions.enabled }}
+      securityContext:
+          sysctls:
+            - name: net.ipv4.ip_unprivileged_port_start
+              value: "0"
+      {{- end }}
+
       containers:
         - name: frontend
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.frontend) }}
           imagePullPolicy: {{ .Values.images.frontend.pullPolicy }}
+          {{- if .Values.global.debug }}
+          securityContext:
+            runAsNonRoot: true              # You can still be a non-root user
+            runAsUser: 911                  # Standard Nginx user UID
+          {{- end }}
           ports:
             - name: http
               containerPort: 80
               protocol: TCP
-          volumeMounts:
-            - name: git
-              mountPath: /git
+{{/*          volumeMounts:*/}}
+{{/*            - name: git*/}}
+{{/*              mountPath: /git*/}}
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
-      volumes:
-        {{- include "netpicker.volume.git" . | nindent 8 }}
+{{/*      volumes:*/}}
+{{/*        - name: git*/}}
+{{/*          persistentVolumeClaim:*/}}
+{{/*            claimName: {{ include "netpicker.gitd.fullname" . }}-data*/}}
 ---
 apiVersion: v1
 kind: Service
@@ -59,4 +71,4 @@ spec:
   selector:
     {{- include "netpicker.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: frontend
-{{- end }} 
+{{- end }}

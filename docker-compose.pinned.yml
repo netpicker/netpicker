@@ -1,11 +1,20 @@
+x-config-s3: &config_s3
+  S3_SERVICE: minio:9000
+  S3_SECRET_ACCESS_KEY: "minio-S3cret-key.!"
+
+
 x-api: &api_common_no_deps
-  image: "netpicker/api:2.7.6"
+  image: "netpicker/api:2.8"
+
   environment:
+    COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
     alembic_version: "78239c9184d4"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
     PROXY_SSL_VERIFY: 0
+    <<: *config_s3
+
   # Set this to the GID of the docker group on the host so the api container
   # can access /var/run/docker.sock. Find it with: getent group docker | cut -d: -f3
   # (on macOS: stat -f '%g' /var/run/docker.sock)
@@ -18,21 +27,23 @@ x-api: &api_common_no_deps
 x-api-deps: &api_common
   <<: *api_common_no_deps
   depends_on:
-    redis:
-      condition: service_healthy
     db:
       condition: service_healthy
+    db_migration:
+      condition: service_completed_successfully
     gitd:
       condition: service_healthy
     gitdctrl:
       condition: service_healthy
-    db_migration:
-      condition: service_completed_successfully
+    # minio:
+    #   condition: service_healthy
+    redis:
+      condition: service_healthy
 
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:2.7.6"
+    image: "netpicker/agent:2.8"
     container_name: agent
     labels:
       netpicker.io: service
@@ -51,7 +62,7 @@ services:
     healthcheck:
       test: "echo LST | nc -v 127.0.0.1 8765"
       start_period: 12s
-      interval: 10s
+      interval: 30s
 
   api:
     <<: *api_common
@@ -65,9 +76,32 @@ services:
     healthcheck:
       test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/api/v1/status').raise_for_status()"]
       start_period: 60s
-      interval: 5s
+      interval: 60s
       retries: 5
       timeout: 10s
+
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:latest
+    container_name: cadvisor
+    restart: always
+    volumes:
+      - /:/rootfs:ro
+      - /dev/disk/:/dev/disk:ro
+      - /sys:/sys:ro
+      - /var/run:/var/run:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    cpus: "0.5"
+    mem_limit: 256m
+    mem_reservation: 64m
+    read_only: true
+
 
   celery:
     <<: *api_common
@@ -81,7 +115,30 @@ services:
     restart: always
     command: /run-celery
     healthcheck:
-      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 5"]
+      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2"]
+      # :timeout: 4s
+      start_period: 15s
+      interval: 30s
+
+  committer:
+    <<: *api_common
+    depends_on:
+      api:
+        condition: service_healthy
+    container_name: committer
+    labels:
+      netpicker.io: service
+      service.netpicker.io: committer
+    restart: always
+    command: /run-celery
+    environment:
+      <<: *config_s3
+      CELERY_QUEUES: config_commit
+      CELERY_CONCURRENCY: 2
+      WITHOUT_BEAT: 1
+    healthcheck:
+      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2"]
+      # timeout: 4s
       start_period: 15s
       interval: 30s
 
@@ -113,12 +170,18 @@ services:
 
 
   frontend:
-    image: "netpicker/tester-frontend:2.7.6"
+    image: "netpicker/tester-frontend:2.8"
     container_name: frontend
     labels:
       netpicker.io: service
       service.netpicker.io: front-end
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 1 -O /dev/null http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 2s
+      retries: 2
+      start_period: 10s
     ports:
       - "80:80"
     volumes:
@@ -128,7 +191,7 @@ services:
 
 
   gitd:
-    image: "netpicker/gitd:2.7.6"
+    image: "netpicker/gitd:2.8"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -139,13 +202,13 @@ services:
     volumes:
       - git:/git
     healthcheck:
-      test: ["CMD", "nc", "-vz", "localhost", "9418"]
+      test: ["CMD", "git", "ls-remote", "git://127.0.0.1/healthcheck.git"]
       start_period: 15s
-      interval: 5s
+      interval: 30s
 
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.7.6"
+    image: "netpicker/gitdctrl:2.8"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -155,12 +218,12 @@ services:
     healthcheck:
       test: echo "PING" | nc -v localhost 9419
       start_period: 5s
-      interval: 5s
+      interval: 30s
     restart: always
 
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.7.6"
+    image: "netpicker/kibbitzer:2.8"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -193,6 +256,24 @@ services:
       - api
       - redis
 
+  minio:
+    image: netpicker/minio:RELEASE.2025-09-07T16-13-09Z
+    labels:
+      netpicker.io: service
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: "minio-S3cret-key.!"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   redis:
     image: redis:7-alpine3.21
     container_name: redis
@@ -204,6 +285,7 @@ services:
     restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 60s
 
 
   swagger:
@@ -215,9 +297,16 @@ services:
     restart: always
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 1 -O /dev/null http://127.0.0.1:8080 || exit 1"]
+      interval: 60s
+      timeout: 2s
+      retries: 2
+      start_period: 10s
+
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.7.6"
+    image: "netpicker/syslog-ng:2.8"
     container_name: syslog-ng
     labels:
       netpicker.io: service
@@ -229,37 +318,22 @@ services:
     volumes:
       - syslog:/var/lib/syslog-ng
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "syslog-ng-ctl stats >/dev/null 2>&1"]
+      start_period: 15s
+      interval: 60s
+      timeout: 5s
+      retries: 3
     depends_on:
       - agent
 
-  cadvisor:
-    image: ghcr.io/google/cadvisor:latest
-    container_name: cadvisor
-    restart: always
-    volumes:
-      - /:/rootfs:ro
-      - /dev/disk/:/dev/disk:ro
-      - /sys:/sys:ro
-      - /var/run:/var/run:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-
-    cpus: "0.5"
-    mem_limit: 256m
-    mem_reservation: 64m
-    read_only: true
 
 volumes:
   config:
   dc-vol:
   git:
   kibbitzer:
+  minio_data:
   pg_data:
   policy-data:
   redis:

@@ -65,15 +65,16 @@ Create the name of the service account to use
 Return the proper image name
 */}}
 {{- define "netpicker.image" -}}
-{{- $registryName := .global.imageRegistry -}}
+{{- $registryName := .image.registry | default .global.imageRegistry -}}
 {{- $repositoryName := .image.repository -}}
-{{- $tag := .image.tag | toString -}}
+{{- $tag := .image.tag | default "latest" | toString -}}
 {{- if $registryName -}}
     {{- printf "%s/%s:%s" $registryName $repositoryName $tag -}}
 {{- else -}}
     {{- printf "%s:%s" $repositoryName $tag -}}
 {{- end -}}
 {{- end -}}
+
 
 {{/*
 Return the proper Docker Image Registry Secret Names
@@ -86,6 +87,126 @@ imagePullSecrets:
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Dynamically injected dictionary envs
+*/}}
+{{- define "netpicker.env" }}
+{{- if . }}
+{{- range $key, $value := . }}
+- name: {{ $key | quote }}
+  value: {{ $value | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "netpicker.redis" -}}
+{{- if .Values.redis.password }}
+- name: REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: REDIS_PASSWORD
+{{- end }}
+{{- end }}
+
+
+{{- define "netpicker.redis-command" -}}
+{{- if .Values.redis.password -}}
+exec redis-server --requirepass "${REDIS_PASSWORD}" --save {{ .Values.redis.saveSettings }} --loglevel {{ .Values.redis.logLevel }}
+{{- else -}}
+exec redis-server --save {{ .Values.redis.saveSettings }} --loglevel {{ .Values.redis.logLevel }}
+{{- end }}
+{{- end }}
+
+{{- define "netpicker.redis-ping" -}}
+exec:
+  command:
+    - redis-cli
+    - --raw
+    - incr
+    - ping
+    {{- if .Values.redis.password }}
+    - -a
+    - "${REDIS_PASSWORD}"
+    {{- end }}
+{{- end }}
+
+{{- define "netpicker.dbCommon" -}}
+{{- if .Values.db.host }}
+- name: API_DB_HOST
+  value: {{ .Values.db.host | quote }}
+{{- end }}
+{{- if .Values.db.port }}
+- name: API_DB_PORT
+  value: {{ .Values.db.port | default "5432" | quote }}
+{{- end }}
+{{- if .Values.db.name }}
+- name: API_DB_NAME
+  value: {{ .Values.db.name | quote }}
+{{- end }}
+{{- if .Values.db.sslmode }}
+- name: API_DB_SSLMODE
+  value: {{ .Values.db.sslmode | quote }}
+{{- end }}
+{{- end }}
+
+{{/*
+Template for Volume Permissions Init Container
+Usage: {{ include "netpicker.init-perms" (dict "context" . "paths" (list "/data" "/config")) }}
+*/}}
+{{- define "netpicker.init-perms" -}}
+- name: volume-permissions
+  image: "{{ .context.Values.volumePermissions.image.repository }}:{{ .context.Values.volumePermissions.image.tag }}"
+  command:
+    - /bin/sh
+    - -c
+    - |
+      {{- range .paths }}
+      chown -R {{ $.context.Values.volumePermissions.user }}:{{ $.context.Values.volumePermissions.group }} {{ . }}
+      {{- end }}
+  securityContext:
+    runAsUser: 0
+  volumeMounts:
+    {{- range .paths }}
+    - name: {{ (splitList "/" .) | last }} # Simple logic: name matches last folder
+      mountPath: {{ . }}
+    {{- end }}
+{{- end -}}
+
+{{/*
+Return the macro for DB connection parts
+*/}}
+{{- define "netpicker.dbConfig" -}}
+{{- include "netpicker.dbCommon" . }}
+- name: API_DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: API_DB_USER
+- name: API_DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: API_DB_PASSWORD
+{{- end -}}
+
+{{/*
+Return the macro for DB connection parts for Migrator
+*/}}
+{{- define "netpicker.dbAdminConfig" -}}
+{{- include "netpicker.dbCommon" . }}
+- name: API_DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: API_DB_ADMIN_USER
+- name: API_DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: API_DB_ADMIN_PASSWORD
+{{- end }}
 
 {{/*
 Create a default fully qualified app name for database
@@ -113,6 +234,10 @@ Create a default fully qualified app name for celery
 */}}
 {{- define "netpicker.celery.fullname" -}}
 {{- printf "celery" -}}
+{{- end -}}
+
+{{- define "netpicker.committer.fullname" -}}
+{{- printf "committer" -}}
 {{- end -}}
 
 {{/*
@@ -157,6 +282,10 @@ Create a default fully qualified app name for agent
 {{- printf "agent" -}}
 {{- end -}}
 
+{{- define "netpicker.minio.fullname" -}}
+{{- printf "minio" -}}
+{{- end -}}
+
 {{/*
 Create a default fully qualified app name for syslog-ng
 */}}
@@ -164,113 +293,29 @@ Create a default fully qualified app name for syslog-ng
 {{- printf "syslogng" -}}
 {{- end -}}
 
-{{/*
-Pod volumes for the persistent claims.
-Each one gives the claim when its persistence is on and an emptyDir when it
-is off, so a pod never references a claim that the chart does not make.
-*/}}
-{{- define "netpicker.volume.dcVol" -}}
-- name: dc-vol
-{{- if .Values.persistence.dcVol.enabled }}
-  persistentVolumeClaim:
-    claimName: {{ include "netpicker.fullname" . }}-dc-vol
-{{- else }}
-  emptyDir: {}
-{{- end }}
+
+{{- define "netpicker.dependency.dbMigrations" -}}
+image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
+command:
+  - /bin/sh
+  - -c
+  - wait-for-db
+env:
+  {{ include "netpicker.dbConfig" . | nindent 2 }}
+  - name: alembic_version
+    value: {{ .Values.api.alembicVersion | quote }}
 {{- end -}}
 
-{{- define "netpicker.volume.secret" -}}
-- name: secret
-{{- if .Values.persistence.secret.enabled }}
-  persistentVolumeClaim:
-    claimName: {{ include "netpicker.fullname" . }}-secret
-{{- else }}
-  emptyDir: {}
-{{- end }}
+{{- define "netpicker.wait-for-db" -}}
+- name: wait-for-db-and-migrations
+  image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
+  command:
+    - /bin/sh
+    - -c
+    - wait-for-db
+  env:
+    {{ include "netpicker.dbConfig" . | nindent 4 }}
+    - name: alembic_version
+      value: {{ .Values.api.alembicVersion | quote }}
 {{- end -}}
 
-{{- define "netpicker.volume.transferium" -}}
-- name: transferium
-{{- if .Values.persistence.transferium.enabled }}
-  persistentVolumeClaim:
-    claimName: {{ include "netpicker.fullname" . }}-transferium
-{{- else }}
-  emptyDir: {}
-{{- end }}
-{{- end -}}
-
-{{- define "netpicker.volume.policyData" -}}
-- name: policy-data
-{{- if .Values.api.persistence.enabled }}
-  persistentVolumeClaim:
-    claimName: {{ include "netpicker.api.fullname" . }}-data
-{{- else }}
-  emptyDir: {}
-{{- end }}
-{{- end -}}
-
-{{- define "netpicker.volume.git" -}}
-- name: git
-{{- if .Values.gitd.persistence.enabled }}
-  persistentVolumeClaim:
-    claimName: {{ include "netpicker.gitd.fullname" . }}-data
-{{- else }}
-  emptyDir: {}
-{{- end }}
-{{- end -}}
-
-{{- define "netpicker.volume.redisData" -}}
-- name: data
-{{- if .Values.redis.persistence.enabled }}
-  persistentVolumeClaim:
-    claimName: {{ include "netpicker.redis.fullname" . }}-data
-{{- else }}
-  emptyDir: {}
-{{- end }}
-{{- end -}}
-
-{{- define "netpicker.volume.syslogngData" -}}
-- name: data
-{{- if .Values.syslogng.persistence.enabled }}
-  persistentVolumeClaim:
-    claimName: {{ include "netpicker.syslogng.fullname" . }}-data
-{{- else }}
-  emptyDir: {}
-{{- end }}
-{{- end -}}
-
-{{/*
-Return the storage class for a claim.
-Call it with a dict that holds "ctx", the root context, and "override", the
-storage class of that one volume. The override wins. If the override is
-empty, the helper gives global.storageClass. If both are empty, the helper
-gives an empty string and the claim keeps no storageClassName field. The
-cluster default storage class then applies.
-
-The RWO claims and the RWX claims can need different classes. Longhorn
-serves both access modes from one class, but Ceph and NetApp Trident do not:
-the block driver serves ReadWriteOnce and the file driver serves
-ReadWriteMany. Each claim therefore has its own override.
-*/}}
-{{- define "netpicker.storageClass" -}}
-{{- default .ctx.Values.global.storageClass .override -}}
-{{- end -}}
-
-{{/*
-Update strategy for a deployment that mounts a shared volume.
-
-A ReadWriteOnce volume attaches to one node. A rolling update starts the new
-pod before it stops the old one, and the new pod cannot attach the volume if
-Kubernetes puts it on another node. The update then stops. Recreate stops the
-old pod first and prevents this.
-
-A ReadWriteMany volume has no such limit, so the deployment then keeps the
-default rolling update. The redis and syslog-ng deployments set Recreate
-directly, because their volumes are always ReadWriteOnce.
-*/}}
-{{- define "netpicker.sharedVolumeStrategy" -}}
-{{- if ne .Values.persistence.accessMode "ReadWriteMany" -}}
-strategy:
-  type: Recreate
-{{- end -}}
-{{- end -}}

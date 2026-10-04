@@ -37,6 +37,18 @@ spec:
           volumeMounts:
             - name: git
               mountPath: /git
+          # The gitd image makes the read-only healthcheck.git repository at
+          # start.
+          livenessProbe:
+            exec:
+              command: ["git", "ls-remote", "git://127.0.0.1/healthcheck.git"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["git", "ls-remote", "git://127.0.0.1/healthcheck.git"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
           resources:
             {{- toYaml .Values.gitd.resources | nindent 12 }}
         - name: gitdctrl
@@ -53,12 +65,12 @@ spec:
             tcpSocket:
               port: {{ .Values.gitdctrl.service.port }}
             initialDelaySeconds: 5
-            periodSeconds: 5
+            periodSeconds: 30
           readinessProbe:
             tcpSocket:
               port: {{ .Values.gitdctrl.service.port }}
             initialDelaySeconds: 5
-            periodSeconds: 5
+            periodSeconds: 30
           resources:
             {{- toYaml .Values.gitdctrl.resources | nindent 12 }}
       volumes:

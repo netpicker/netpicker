@@ -44,6 +44,7 @@ spec:
               value: {{ .Values.api.logLevel | quote }}
             - name: UVICORN_ROOT_PATH
               value: {{ .Values.api.uvicornRootPath | quote }}
+            {{- include "netpicker.s3Env" . | nindent 12 }}
           volumeMounts:
             - name: policy-data
               mountPath: /data

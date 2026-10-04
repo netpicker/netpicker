@@ -69,6 +69,7 @@ spec:
               value: {{ .Values.api.uvicornRootPath | quote }}
             - name: GIT_REPO_MANAGER
               value: '["{{ include "netpicker.gitd.fullname" . }}", {{ .Values.gitdctrl.service.port }}]'
+            {{- include "netpicker.s3Env" . | nindent 12 }}
             {{- if .Values.api.gitAuthorName }}
             - name: GIT_AUTHOR_NAME
               value: {{ .Values.api.gitAuthorName | quote }}
@@ -98,13 +99,16 @@ spec:
               path: /api/v1/status
               port: http
             initialDelaySeconds: 60
-            periodSeconds: 5
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /api/v1/status
               port: http
             initialDelaySeconds: 30
-            periodSeconds: 5
+            periodSeconds: 60
+            timeoutSeconds: 10
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
       volumes:

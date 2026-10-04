@@ -55,12 +55,12 @@ spec:
             tcpSocket:
               port: 8765
             initialDelaySeconds: 12
-            periodSeconds: 10
+            periodSeconds: 30
           readinessProbe:
             tcpSocket:
               port: 8765
             initialDelaySeconds: 12
-            periodSeconds: 10
+            periodSeconds: 30
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}
       volumes:

@@ -62,6 +62,8 @@ The chart collects the necessary secrets from the v1/secret whose name can be de
 
 For frictionless installation the chart comes with the "default" secret.
 You can create your own secret that uses specialized secret stores to retrieve the values from.
+Your secret must hold these keys: `JWT_SECRET`, `POSTGRES_PASSWORD`, `DBPASSWORD` and
+`S3_SECRET_ACCESS_KEY`. MinIO uses `S3_SECRET_ACCESS_KEY` as its root password.
 
 ## Parameters
 
@@ -100,7 +102,7 @@ You can create your own secret that uses specialized secret stores to retrieve t
 | Name                    | Description                | Value           |
 | ----------------------- | -------------------------- | --------------- |
 | `images.api.repository` | API image repository       | `netpicker/api` |
-| `images.api.tag`        | API image tag              | `2.7.6`         |
+| `images.api.tag`        | API image tag              | `2.8`           |
 | `images.api.pullPolicy` | API image pull policy      | `IfNotPresent`  |
 | `images.db.repository`  | Database image repository  | `netpicker/db`  |
 | `images.db.tag`         | Database image tag         | `latest`        |
@@ -127,7 +129,7 @@ For other image parameters, please refer to the values.yaml file.
 | Name                      | Description                                | Value          |
 | ------------------------- | ------------------------------------------ | -------------- |
 | `api.enabled`             | Enable API deployment                      | `true`         |
-| `api.alembicVersion`      | Alembic version                            | `3201afd119b9` |
+| `api.alembicVersion`      | Alembic version                            | `78239c9184d4` |
 | `api.jwtSecret`           | JWT secret (key)                           | `<random>`     |
 | `api.logLevel`            | Log level                                  | `INFO`         |
 | `api.uvicornRootPath`     | Uvicorn root path                          | `/`            |
@@ -135,7 +137,41 @@ For other image parameters, please refer to the values.yaml file.
 | `api.service.port`        | API service port                           | `8000`         |
 | `api.resources`           | The resources limits for the API container | `{}`           |
 | `api.persistence.enabled` | Enable persistence using PVC               | `true`         |
-| `api.persistence.size`    | PVC Storage Request for API volume         | `1Gi`          |
+| `api.persistence.size`    | PVC Storage Request for API volume         | `20Gi`         |
+
+### Committer parameters
+
+The committer is a celery worker that writes the device configs from MinIO to
+git. The celery worker does not do this work, so config backups stop if the
+committer does not run.
+
+| Name                    | Description                                      | Value           |
+| ----------------------- | ------------------------------------------------ | --------------- |
+| `committer.enabled`     | Enable committer deployment                      | `true`          |
+| `committer.logLevel`    | Log level                                        | `INFO`          |
+| `committer.queues`      | Celery queues that the committer takes           | `config_commit` |
+| `committer.concurrency` | Number of concurrent commit tasks                | `2`             |
+| `committer.resources`   | The resources limits for the committer container | `{}`            |
+
+### MinIO parameters
+
+MinIO is the S3 store that holds the device configs until the committer writes
+them to git. The api, celery, committer and db-migration pods use the root
+credentials as their S3 credentials.
+
+| Name                              | Description                                                       | Value                |
+| --------------------------------- | ----------------------------------------------------------------- | -------------------- |
+| `minio.enabled`                   | Enable MinIO deployment                                           | `true`               |
+| `minio.rootUser`                  | MinIO root user and S3 access key                                 | `admin`              |
+| `minio.rootPassword`              | MinIO root password and S3 secret key. Must not be empty          | `minio-S3cret-key.!` |
+| `minio.service.type`              | Kubernetes Service type                                           | `ClusterIP`          |
+| `minio.service.port`              | S3 API port                                                       | `9000`               |
+| `minio.service.consolePort`       | MinIO console port                                                | `9001`               |
+| `minio.persistence.enabled`       | Enable persistence using PVC                                      | `true`               |
+| `minio.persistence.size`          | PVC Storage Request for the MinIO volume                          | `10Gi`               |
+| `minio.persistence.accessMode`    | Access mode for the MinIO volume                                  | `ReadWriteOnce`      |
+| `minio.persistence.storageClass`  | StorageClass for the MinIO volume. Empty means `global.storageClass` | `""`              |
+| `minio.resources`                 | The resources limits for the MinIO container                      | `{}`                 |
 
 For other parameters, please refer to the values.yaml file.
 
@@ -164,7 +200,7 @@ parameter.
 
 | Volume | Pods that mount it |
 | ------ | ------------------ |
-| `api-data` | api, celery, db-migration |
+| `api-data` | api, celery, committer, db-migration |
 | `dc-vol` | celery, kibbitzer, agent |
 | `gitd-data` | gitd, frontend |
 | `transferium` | celery, transferium |
@@ -208,6 +244,7 @@ which is the correct type for a database.
 | db data | `db.persistence.accessMode` | `db.persistence.storageClass` |
 | `redis-data` | `redis.persistence.accessMode` | `redis.persistence.storageClass` |
 | `syslogng-data` | `syslogng.persistence.accessMode` | `syslogng.persistence.storageClass` |
+| `minio-data` | `minio.persistence.accessMode` | `minio.persistence.storageClass` |
 
 Each storage class parameter has the default value `""`, which means
 `global.storageClass`. Set one only if that volume needs another class.

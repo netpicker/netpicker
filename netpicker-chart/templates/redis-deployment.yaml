@@ -49,7 +49,7 @@ spec:
                 - incr
                 - ping
             initialDelaySeconds: 5
-            periodSeconds: 10
+            periodSeconds: 60
           readinessProbe:
             exec:
               command:
@@ -58,7 +58,7 @@ spec:
                 - incr
                 - ping
             initialDelaySeconds: 5
-            periodSeconds: 10
+            periodSeconds: 60
           resources:
             {{- toYaml .Values.redis.resources | nindent 12 }}
       volumes:

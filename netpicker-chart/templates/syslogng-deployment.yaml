@@ -44,6 +44,20 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/syslog-ng
+          livenessProbe:
+            exec:
+              command: ["syslog-ng-ctl", "stats"]
+            initialDelaySeconds: 15
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["syslog-ng-ctl", "stats"]
+            initialDelaySeconds: 15
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.syslogng.resources | nindent 12 }}
       volumes:

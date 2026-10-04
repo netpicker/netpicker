@@ -57,6 +57,25 @@ spec:
 ---
 {{- end }}
 
+{{- if and .Values.minio.enabled .Values.minio.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "netpicker.minio.fullname" . }}-data
+  labels:
+    {{- include "netpicker.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.minio.persistence.accessMode | default "ReadWriteOnce" }}
+  {{- with (include "netpicker.storageClass" (dict "ctx" $ "override" .Values.minio.persistence.storageClass)) }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.minio.persistence.size }}
+---
+{{- end }}
+
 {{- if and .Values.api.enabled .Values.api.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim

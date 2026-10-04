@@ -37,6 +37,22 @@ spec:
           volumeMounts:
             - name: git
               mountPath: /git
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 2
+            failureThreshold: 2
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 2
+            failureThreshold: 2
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
       volumes:

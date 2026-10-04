@@ -165,6 +165,36 @@ Create a default fully qualified app name for syslog-ng
 {{- end -}}
 
 {{/*
+Create a default fully qualified app name for committer
+*/}}
+{{- define "netpicker.committer.fullname" -}}
+{{- printf "committer" -}}
+{{- end -}}
+
+{{/*
+Create a default fully qualified app name for minio
+*/}}
+{{- define "netpicker.minio.fullname" -}}
+{{- printf "minio" -}}
+{{- end -}}
+
+{{/*
+Environment variables that connect a pod to the minio S3 store.
+The api, celery, committer and db-migration pods use them.
+*/}}
+{{- define "netpicker.s3Env" -}}
+- name: S3_SERVICE
+  value: "{{ include "netpicker.minio.fullname" . }}:{{ .Values.minio.service.port }}"
+- name: S3_ACCESS_KEY_ID
+  value: {{ .Values.minio.rootUser | quote }}
+- name: S3_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.secretConfig | default "default" }}
+      key: S3_SECRET_ACCESS_KEY
+{{- end -}}
+
+{{/*
 Pod volumes for the persistent claims.
 Each one gives the claim when its persistence is on and an emptyDir when it
 is off, so a pod never references a claim that the chart does not make.
@@ -234,6 +264,16 @@ is off, so a pod never references a claim that the chart does not make.
 {{- if .Values.syslogng.persistence.enabled }}
   persistentVolumeClaim:
     claimName: {{ include "netpicker.syslogng.fullname" . }}-data
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "netpicker.volume.minioData" -}}
+- name: data
+{{- if .Values.minio.persistence.enabled }}
+  persistentVolumeClaim:
+    claimName: {{ include "netpicker.minio.fullname" . }}-data
 {{- else }}
   emptyDir: {}
 {{- end }}

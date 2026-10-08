@@ -75,6 +75,7 @@ Your secret must hold these keys: `JWT_SECRET`, `POSTGRES_PASSWORD`, `DBPASSWORD
 | `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
 | `global.storageClass`     | Default StorageClass for every volume that sets no class of its own | `"longhorn"`      |
 | `global.secretConfig`     | Global name of the secret used to set ENV       | `"default"`       |
+| `global.clusterDomain`    | DNS domain of the cluster, used to build fully qualified service names | `"cluster.local"` |
 
 ### Storage Class parameters
 

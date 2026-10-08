@@ -4,11 +4,11 @@ x-config-s3: &config_s3
 
 
 x-api: &api_common_no_deps
-  image: "netpicker/api:2.8"
+  image: "netpicker/api:2.8.1-rc"
 
   environment:
     COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
-    alembic_version: "78239c9184d4"
+    alembic_version: "c8b7d285bc97"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
@@ -43,7 +43,7 @@ x-api-deps: &api_common
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:2.8"
+    image: "netpicker/agent:2.8.1-rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -170,7 +170,7 @@ services:
 
 
   frontend:
-    image: "netpicker/tester-frontend:2.8"
+    image: "netpicker/tester-frontend:2.8.1-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -191,7 +191,7 @@ services:
 
 
   gitd:
-    image: "netpicker/gitd:2.8"
+    image: "netpicker/gitd:2.8.1-rc"
     container_name: gitd
     labels:
       netpicker.io: service
@@ -208,7 +208,7 @@ services:
 
 
   gitdctrl:
-    image: "netpicker/gitdctrl:2.8"
+    image: "netpicker/gitdctrl:2.8.1-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -223,7 +223,7 @@ services:
 
 
   kibbitzer:
-    image: "netpicker/kibbitzer:2.8"
+    image: "netpicker/kibbitzer:2.8.1-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -306,7 +306,7 @@ services:
 
 
   syslog-ng:
-    image: "netpicker/syslog-ng:2.8"
+    image: "netpicker/syslog-ng:2.8.1-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service

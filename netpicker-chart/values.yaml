@@ -47,7 +47,7 @@ storageClass:
 images:
   api:
     repository: netpicker/api
-    tag: "2.8"
+    tag: "2.8.1"
     pullPolicy: IfNotPresent
   db:
     repository: netpicker/db
@@ -59,11 +59,11 @@ images:
     pullPolicy: IfNotPresent
   gitd:
     repository: netpicker/gitd
-    tag: "2.8"
+    tag: "2.8.1"
     pullPolicy: IfNotPresent
   gitdctrl:
     repository: netpicker/gitdctrl
-    tag: "2.8"
+    tag: "2.8.1"
     pullPolicy: IfNotPresent
   swagger:
     repository: swaggerapi/swagger-ui
@@ -71,19 +71,19 @@ images:
     pullPolicy: IfNotPresent
   frontend:
     repository: netpicker/tester-frontend
-    tag: "2.8"
+    tag: "2.8.1"
     pullPolicy: IfNotPresent
   kibbitzer:
     repository: netpicker/kibbitzer
-    tag: "2.8"
+    tag: "2.8.1"
     pullPolicy: IfNotPresent
   agent:
     repository: netpicker/agent
-    tag: "2.8"
+    tag: "2.8.1"
     pullPolicy: IfNotPresent
   syslogng:
     repository: netpicker/syslog-ng
-    tag: "2.8"
+    tag: "2.8.1"
     pullPolicy: IfNotPresent
   transferium:
     repository: netpicker/transferium
@@ -126,7 +126,7 @@ db:
 # API configuration
 api:
   enabled: true
-  alembicVersion: "78239c9184d4"
+  alembicVersion: "c8b7d285bc97"
   dbPassword: netpicker
   cliProxyHost: "agent"
   logLevel: "INFO"

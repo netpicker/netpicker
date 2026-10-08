@@ -103,7 +103,7 @@ Your secret must hold these keys: `JWT_SECRET`, `POSTGRES_PASSWORD`, `DBPASSWORD
 | Name                    | Description                | Value           |
 | ----------------------- | -------------------------- | --------------- |
 | `images.api.repository` | API image repository       | `netpicker/api` |
-| `images.api.tag`        | API image tag              | `2.8`           |
+| `images.api.tag`        | API image tag              | `2.8.1`         |
 | `images.api.pullPolicy` | API image pull policy      | `IfNotPresent`  |
 | `images.db.repository`  | Database image repository  | `netpicker/db`  |
 | `images.db.tag`         | Database image tag         | `latest`        |
@@ -130,7 +130,7 @@ For other image parameters, please refer to the values.yaml file.
 | Name                      | Description                                | Value          |
 | ------------------------- | ------------------------------------------ | -------------- |
 | `api.enabled`             | Enable API deployment                      | `true`         |
-| `api.alembicVersion`      | Alembic version                            | `78239c9184d4` |
+| `api.alembicVersion`      | Alembic version                            | `c8b7d285bc97` |
 | `api.jwtSecret`           | JWT secret (key)                           | `<random>`     |
 | `api.logLevel`            | Log level                                  | `INFO`         |
 | `api.uvicornRootPath`     | Uvicorn root path                          | `/`            |

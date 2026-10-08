@@ -10,9 +10,6 @@ metadata:
     service.netpicker.io: celery
 spec:
   replicas: 1
-  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
-  {{- . | nindent 2 }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -25,53 +22,57 @@ spec:
         netpicker.io: service
         service.netpicker.io: celery
     spec:
+      enableServiceLinks: false
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "policy-data")) | nindent 8 }}
+        {{- end }}
+        {{- include "netpicker.wait-for-db" . | nindent 8 }}
       containers:
         - name: celery
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
           command: ["/run-celery"]
           env:
+            {{ include "netpicker.redis" . | nindent 12 }}
+            {{ include "netpicker.dbConfig" . | nindent 12 }}
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST
               value: {{ .Values.api.cliProxyHost | quote }}
+            - name: GIT_REPO_MANAGER
+              value: '["{{ include "netpicker.gitd.fullname" . }}", {{ .Values.gitdctrl.service.port }}]'
             - name: LOG_LEVEL
               value: {{ .Values.celery.logLevel | quote }}
             - name: UVICORN_ROOT_PATH
               value: {{ .Values.api.uvicornRootPath | quote }}
-            - name: CELERY_BROKER_URL
-              value: "redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }}"
-            - name: GIT_REPO_MANAGER
-              value: '["{{ include "netpicker.gitd.fullname" . }}", {{ .Values.gitdctrl.service.port }}]'
+            # - name: CELERY_BROKER_URL
+            #   value: "redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }}"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.global.secretConfig | default "default" }}
                   key: JWT_SECRET
-            {{- include "netpicker.s3Env" . | nindent 12 }}
           volumeMounts:
             - name: policy-data
               mountPath: /data
-            - name: transferium
-              mountPath: /transferium
-            - name: dc-vol
-              mountPath: /dc-vol
           livenessProbe:
             exec:
               command:
-                - sh
-                - -c
-                - CELERY_BROKER_URL=redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }} celery inspect ping -t 2
+                - /usr/local/bin/celery
+                - inspect
+                - ping
+                - --timeout=3
             initialDelaySeconds: 15
-            periodSeconds: 30
-            timeoutSeconds: 15
+            periodSeconds: 120
+            timeoutSeconds: 12
           resources:
             {{- toYaml .Values.celery.resources | nindent 12 }}
       volumes:
-        {{- include "netpicker.volume.policyData" . | nindent 8 }}
-        {{- include "netpicker.volume.transferium" . | nindent 8 }}
-        {{- include "netpicker.volume.dcVol" . | nindent 8 }}
+        - name: policy-data
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.api.fullname" . }}-data
       securityContext:
         fsGroup: 911
 {{- end }}

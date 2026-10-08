@@ -10,9 +10,6 @@ metadata:
     service.netpicker.io: transferium
 spec:
   replicas: 1
-  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
-  {{- . | nindent 2 }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -26,6 +23,10 @@ spec:
         service.netpicker.io: transferium
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/transferium")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: transferium
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.transferium) }}
@@ -57,7 +58,9 @@ spec:
           resources:
             {{- toYaml .Values.transferium.resources | nindent 12 }}
       volumes:
-        {{- include "netpicker.volume.transferium" . | nindent 8 }}
+        - name: transferium
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-transferium
       securityContext:
         fsGroup: 911
 ---

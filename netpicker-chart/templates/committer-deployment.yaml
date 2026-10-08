@@ -1,18 +1,15 @@
-{{- if .Values.committer.enabled }}
+{{- if .Values.celery.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "netpicker.committer.fullname" . }}
   labels:
     {{- include "netpicker.labels" . | nindent 4 }}
-    app.kubernetes.io/component: committer
+    app.kubernetes.io/component: celery
     netpicker.io: service
-    service.netpicker.io: committer
+    service.netpicker.io: celery
 spec:
   replicas: 1
-  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
-  {{- . | nindent 2 }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -25,53 +22,67 @@ spec:
         netpicker.io: service
         service.netpicker.io: committer
     spec:
+      enableServiceLinks: false
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "policy-data")) | nindent 8 }}
+        {{- end }}
+        {{- include "netpicker.wait-for-db" . | nindent 8 }}
       containers:
-        - name: committer
+        - name: celery
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.api) }}
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
           command: ["/run-celery"]
           env:
+            {{ include "netpicker.redis" . | nindent 12 }}
+            {{ include "netpicker.dbConfig" . | nindent 12 }}
+            - name: CELERY_QUEUES
+              value: config_commit
+            - name: WITHOUT_BEAT
+              value: "1"
             - name: alembic_version
               value: {{ .Values.api.alembicVersion | quote }}
             - name: CLI_PROXY_HOST
               value: {{ .Values.api.cliProxyHost | quote }}
-            - name: LOG_LEVEL
-              value: {{ .Values.committer.logLevel | quote }}
-            - name: UVICORN_ROOT_PATH
-              value: {{ .Values.api.uvicornRootPath | quote }}
-            - name: CELERY_BROKER_URL
-              value: "redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }}"
-            - name: CELERY_QUEUES
-              value: {{ .Values.committer.queues | quote }}
-            - name: CELERY_CONCURRENCY
-              value: {{ .Values.committer.concurrency | quote }}
-            - name: WITHOUT_BEAT
-              value: "1"
             - name: GIT_REPO_MANAGER
               value: '["{{ include "netpicker.gitd.fullname" . }}", {{ .Values.gitdctrl.service.port }}]'
+            - name: LOG_LEVEL
+              value: {{ .Values.celery.logLevel | quote }}
+            - name: UVICORN_ROOT_PATH
+              value: {{ .Values.api.uvicornRootPath | quote }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.global.secretConfig | default "default" }}
                   key: JWT_SECRET
-            {{- include "netpicker.s3Env" . | nindent 12 }}
+            - name: S3_ACCESS_KEY_ID
+              value: {{ .Values.minio.root_user | quote }}
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: MINIO_ROOT_PASSWORD
+
           volumeMounts:
             - name: policy-data
               mountPath: /data
           livenessProbe:
             exec:
               command:
-                - sh
-                - -c
-                - CELERY_BROKER_URL=redis://{{ include "netpicker.redis.fullname" . }}:{{ .Values.redis.service.port }} celery inspect ping -t 2
+                - /usr/local/bin/celery
+                - inspect
+                - ping
+                - --timeout=3
             initialDelaySeconds: 15
-            periodSeconds: 30
-            timeoutSeconds: 15
+            periodSeconds: 120
+            timeoutSeconds: 12
           resources:
-            {{- toYaml .Values.committer.resources | nindent 12 }}
+            {{- toYaml .Values.celery.resources | nindent 12 }}
       volumes:
-        {{- include "netpicker.volume.policyData" . | nindent 8 }}
+        - name: policy-data
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.api.fullname" . }}-data
       securityContext:
         fsGroup: 911
 {{- end }}

@@ -10,9 +10,6 @@ metadata:
     service.netpicker.io: kibbitzer
 spec:
   replicas: 1
-  {{- with (include "netpicker.sharedVolumeStrategy" .) }}
-  {{- . | nindent 2 }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "netpicker.selectorLabels" . | nindent 6 }}
@@ -26,11 +23,22 @@ spec:
         service.netpicker.io: kibbitzer
     spec:
       {{- include "netpicker.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.volumePermissions.enabled }}
+        {{- include "netpicker.init-perms" (dict "context" . "paths" (list "/dc-vol")) | nindent 8 }}
+        {{- end }}
       containers:
         - name: kibbitzer
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.kibbitzer) }}
           imagePullPolicy: {{ .Values.images.kibbitzer.pullPolicy }}
           env:
+            {{- if .Values.redis.password }}
+            - name: SHENV_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.secretConfig | default "default" }}
+                  key: REDIS_PASSWORD
+            {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.kibbitzer.logLevel | quote }}
             - name: SHENV_API_URL
@@ -72,8 +80,12 @@ spec:
           resources:
             {{- toYaml .Values.kibbitzer.resources | nindent 12 }}
       volumes:
-        {{- include "netpicker.volume.secret" . | nindent 8 }}
-        {{- include "netpicker.volume.dcVol" . | nindent 8 }}
+        - name: secret
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.kibbitzer.fullname" . }}-data
+        - name: dc-vol
+          persistentVolumeClaim:
+            claimName: {{ include "netpicker.fullname" . }}-dc-vol
       securityContext:
         fsGroup: 911
 

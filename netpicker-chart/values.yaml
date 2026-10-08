@@ -6,6 +6,10 @@ global:
   imagePullSecrets: []
   storageClass: "local-storage"
   secretConfig: "default"
+  # The DNS domain of the cluster. The frontend proxies /swagger/ to the
+  # fully qualified name of the swagger service, which ends in this domain.
+  # Change it only if your cluster does not use cluster.local.
+  clusterDomain: "cluster.local"
 
 
 volumePermissions:

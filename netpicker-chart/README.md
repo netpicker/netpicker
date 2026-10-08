@@ -53,6 +53,7 @@ You can create your own secret that uses specialized secret stores to retrieve t
 | `global.imagePullSecrets` | Global Docker registry secret names as an array | `[]`              |
 | `global.storageClass`     | Global StorageClass for Persistent Volume(s)    | `"local-storage"` |
 | `global.secretConfig`     | Global name of the secret used to set ENV       | `"default"`       |
+| `global.clusterDomain`    | DNS domain of the cluster, used to build fully qualified service names | `"cluster.local"` |
 
 ### Storage Class parameters
 

@@ -35,6 +35,11 @@ spec:
         - name: frontend
           image: {{ include "netpicker.image" (dict "global" .Values.global "image" .Values.images.frontend) }}
           imagePullPolicy: {{ .Values.images.frontend.pullPolicy }}
+          env:
+            # nginx resolves this name itself and ignores the DNS search
+            # domains, so it must be fully qualified
+            - name: NGINX_SWAGGER_ADDRESS
+              value: "{{ include "netpicker.swagger.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain }}:{{ .Values.swagger.service.port }}"
           {{- if .Values.global.debug }}
           securityContext:
             runAsNonRoot: true              # You can still be a non-root user

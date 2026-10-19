@@ -134,7 +134,7 @@ services:
     environment:
       <<: *config_s3
       CELERY_QUEUES: config_commit
-      CELERY_CONCURRENCY: 2
+      CELERY_CONCURRENCY: 1
       WITHOUT_BEAT: 1
     healthcheck:
       test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2"]

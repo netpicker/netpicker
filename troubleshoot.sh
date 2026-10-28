@@ -2,12 +2,15 @@
 #
 # Troubleshoot a running Netpicker Docker Compose stack.
 #
-# Checks the host (uptime, load, CPU, memory, disk space), that all services
-# are up, healthy and within their resource limits, that the database is at
-# the alembic revision the api image expects, that the containers can reach
-# each other, that the celery task queues in redis are not stuck, that the git
-# working copies in the policy workdir have no old uncommitted files or stale
-# locks and that the container logs are free of errors.
+# Checks the host (uptime, load, CPU, memory, disk space), that the Netpicker
+# version that runs is the release of this git repo, that all services are up,
+# healthy and within their resource limits, what the local changes to the repo
+# do to the stack and whether the containers match the compose files, that the
+# database is at the alembic revision the api image expects, that the
+# containers can reach each other, that the celery task queues in redis are
+# not stuck, that the git working copies in the policy workdir have no old
+# uncommitted files or stale locks, how the last backup and policy run of the
+# devices went and that the container logs are free of errors.
 #
 # Run it on the Docker host as a user that can access the Docker daemon. It
 # only reads state; when the api container is down it starts a throw-away
@@ -20,17 +23,20 @@ usage() {
 Usage: ./troubleshoot.sh [options]
 
 Checks a running Netpicker Docker stack: host uptime, CPU, memory and disk
-space, containers with their health checks and resource limits, the database
+space, the Netpicker version against the release tags of this repo,
+containers with their health checks and resource limits, local changes to
+this repo and whether the containers match the compose files, the database
 migration (alembic) revision, connectivity between containers, the redis task
-queues, uncommitted files in the git repos of the policy workdir and errors in
-the container logs.
+queues, uncommitted files in the git repos of the policy workdir, the last
+backup and policy run of every device and errors in the container logs.
 
 Options:
   -p, --project NAME     Docker Compose project name (default: auto-detect)
   -s, --since DURATION   how far back to scan the logs, in "docker logs --since"
                          format, e.g. 30m, 6h or 2026-01-31T12:00:00 (default: 1h)
   -i, --interval SECS    how long to watch the task queues (default: 15)
-      --task-age SECS    warn about tasks unacknowledged for longer than this
+      --task-age SECS    warn about tasks unacknowledged, and device backups
+                         and policy runs unfinished, for longer than this
                          (default: 3600)
       --ignore REGEX     ignore log lines matching the extended regex REGEX;
                          can be given more than once
@@ -70,6 +76,13 @@ MEM_FAIL=95
 CPU_WARN=90
 # report uncommitted files and unpushed commits in the policy workdir older than this
 WORKDIR_AGE=3600
+
+# release versions in git and image tags, e.g. 2.8.1; VERSION_RE also matches
+# pre-releases such as 2.8.1-rc
+RELEASE_RE='^v?[0-9]+(\.[0-9]+)+$'
+VERSION_RE='^v?[0-9]+(\.[0-9]+)+(-[0-9A-Za-z.-]+)?$'
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
 
 need_value() {
     if [ $# -lt 2 ] || [ -z "$2" ]; then
@@ -199,6 +212,50 @@ human_kib() {
         for (i = 1; k >= 1024 && i < n; i++) k /= 1024
         printf(i == 1 ? "%d%s\n" : "%.1f%s\n", k, u[i])
     }'
+}
+
+# Compare versions such as 2.8 and 2.8.1-rc; a pre-release is lower than its
+# release. With mode=cmp print -1, 0 or 1 for a lower than, equal to or higher
+# than b; with mode=max print the highest version of the input lines.
+IFS= read -r -d '' AWK_VER <<'EOF'
+function parse(s, p,   i) {
+    sub(/^v/, "", s)
+    PRE = ""
+    if ((i = index(s, "-")) > 0) { PRE = substr(s, i + 1); s = substr(s, 1, i - 1) }
+    return split(s, p, ".")
+}
+function vcmp(a, b,   pa, pb, na, nb, prea, preb, i, n, x, y) {
+    na = parse(a, pa); prea = PRE
+    nb = parse(b, pb); preb = PRE
+    n = na > nb ? na : nb
+    for (i = 1; i <= n; i++) {
+        x = i <= na ? pa[i] + 0 : 0
+        y = i <= nb ? pb[i] + 0 : 0
+        if (x != y) return x < y ? -1 : 1
+    }
+    if (prea == preb) return 0
+    if (prea == "") return 1
+    if (preb == "") return -1
+    return prea < preb ? -1 : 1
+}
+BEGIN { if (mode == "cmp") { print vcmp(a, b); exit } }
+NF && (best == "" || vcmp($0, best) > 0) { best = $0 }
+END { if (mode == "max" && best != "") print best }
+EOF
+
+ver_cmp() {
+    awk -v mode=cmp -v a="$1" -v b="$2" "$AWK_VER" </dev/null
+}
+
+ver_max() {
+    awk -v mode=max "$AWK_VER"
+}
+
+# seconds since FILE was modified
+file_age() {
+    local t
+    t=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || return 1
+    echo $(($(date +%s) - t))
 }
 
 # ---------------------------------------------------------------------------
@@ -373,6 +430,110 @@ resolve_targets() {
     KIB_TAC_HP="${v:-agent}:${p:-8765}"
     v=$(env_get "$ENV_KIB" SHENV_REDIS_URL)
     KIB_REDIS_HP=$(url_hostport "${v:-redis://redis}" 6379)
+}
+
+ctr_label() {
+    docker inspect -f "{{index .Config.Labels \"$2\"}}" "$1" 2>/dev/null | grep -v '^<no value>$'
+}
+
+# The project directory, compose files and env files the stack was started
+# with, from the labels docker compose puts on the containers (one per line).
+load_compose() {
+    local c
+    c=${API_ANY:-$(printf '%s\n' "$CTR" | head -n 1 | cut -d'|' -f2)}
+    COMPOSE_WD=$(ctr_label "$c" com.docker.compose.project.working_dir)
+    COMPOSE_FILES=$(ctr_label "$c" com.docker.compose.project.config_files | tr ',' '\n')
+    COMPOSE_ENV_FILES=$(ctr_label "$c" com.docker.compose.project.environment_file | tr ',' '\n')
+}
+
+# git in the clone of this repo; GIT_OPTIONAL_LOCKS keeps git status from
+# taking the index lock
+rgit() {
+    GIT_OPTIONAL_LOCKS=0 LC_ALL=C git -C "$REPO" "$@" </dev/null
+}
+
+# Find the git clone of this repo: the compose project directory of the
+# stack, or else the directory of this script. Sets REPO, STACK_IN_REPO (1
+# when the stack runs from the clone) and WD_PREFIX (the path of the compose
+# project directory in the clone, "" at its top), or REPO_ERR.
+find_repo() {
+    local d out
+    REPO= REPO_ERR= STACK_IN_REPO=0 WD_PREFIX=
+    if ! command -v git >/dev/null 2>&1; then
+        REPO_ERR="git is not installed"
+        return 1
+    fi
+    for d in "$COMPOSE_WD" "$SCRIPT_DIR"; do
+        [ -n "$d" ] && [ -d "$d" ] || continue
+        if out=$(git -C "$d" rev-parse --show-toplevel 2>&1 </dev/null); then
+            REPO=$out
+            break
+        fi
+        case "$out" in
+            *'dubious ownership'*)
+                REPO_ERR="git does not trust $d because another user owns it; run this script as its owner or allow it with 'git config --global --add safe.directory $d'"
+                return 1
+                ;;
+        esac
+    done
+    if [ -z "$REPO" ]; then
+        REPO_ERR="${COMPOSE_WD:-the compose project directory} is not a git clone of the Netpicker repo"
+        return 1
+    fi
+    if [ -n "$COMPOSE_WD" ] && [ "$(git -C "$COMPOSE_WD" rev-parse --show-toplevel 2>/dev/null </dev/null)" = "$REPO" ]; then
+        STACK_IN_REPO=1
+        WD_PREFIX=$(git -C "$COMPOSE_WD" rev-parse --show-prefix </dev/null)
+    fi
+}
+
+# repo_rel FILE: the path in the repo of FILE in the compose project directory
+repo_rel() {
+    [ "$STACK_IN_REPO" = 1 ] || return 1
+    case "$1" in
+        "$COMPOSE_WD"/*) printf '%s%s\n' "$WD_PREFIX" "${1#"$COMPOSE_WD"/}" ;;
+        *) return 1 ;;
+    esac
+}
+
+# seconds since the last 'git fetch' in the repo
+fetch_age() {
+    local f
+    f=$(rgit rev-parse --git-path FETCH_HEAD 2>/dev/null) || return 1
+    case "$f" in
+        /*) ;;
+        *) f="$REPO/$f" ;;
+    esac
+    [ -f "$f" ] && file_age "$f"
+}
+
+# compose_run MODE ARGS...: docker compose with the project, directory, env
+# files and compose files of the stack. MODE base takes the compose files that
+# are in the repo as they were at commit $BASE, and fails when none of the
+# compose files existed then.
+compose_run() {
+    local mode=$1 f rel n=0
+    local -a args
+    shift
+    args=(-p "$PROJECT" --project-directory "$COMPOSE_WD")
+    while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$f" ] && args+=(--env-file "$f")
+    done <<EOF
+$COMPOSE_ENV_FILES
+EOF
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        if [ "$mode" = base ] && rel=$(repo_rel "$f"); then
+            rgit cat-file -e "$BASE:$rel" 2>/dev/null || continue
+            mkdir -p "$WORK/base/$(dirname "$rel")" && rgit show "$BASE:$rel" >"$WORK/base/$rel" || return 1
+            f="$WORK/base/$rel"
+        fi
+        args+=(-f "$f")
+        n=$((n + 1))
+    done <<EOF
+$COMPOSE_FILES
+EOF
+    [ $n -gt 0 ] || return 1
+    docker compose "${args[@]}" "$@" </dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -555,14 +716,321 @@ for worker in sorted(set(queues) | set(stats)):
         len(scheduled.get(worker) or []), names))
 EOF
 
-IFS= read -r -d '' PY_DB_REVISION <<'EOF'
-from sqlalchemy import create_engine, text
+# Run the query in argv[1] with the database settings of the api, print the
+# rows tab-separated
+IFS= read -r -d '' PY_DB_QUERY <<'EOF'
+import sys
+
+from sqlalchemy import create_engine
 
 from app.settings import common_config
 
 with create_engine(common_config.ALEMBIC_URI).connect() as conn:
-    for (version,) in conn.execute(text("SELECT version_num FROM alembic_version")):
-        print(version)
+    for row in conn.exec_driver_sql(sys.argv[1]):
+        print("\t".join("" if v is None else str(v) for v in row))
+EOF
+
+# The last event of every device per kind of event (a trigger deletes the
+# earlier ones): readout is a backup, exec-rules a policy run and exec-job an
+# automation job. The phase goes scheduled -> started -> finished, or
+# cancelled; failed backups have success false or an error in the details,
+# failed policy runs and jobs an exception. Ages are in seconds, times in UTC.
+# Output: S tenant event status devices oldest oldest-age newest newest-age
+#         E tenant event error devices newest-age example-addresses
+#         X tenant event phase devices oldest-age example-addresses (unfinished
+#           for longer than @TASK_AGE@ seconds)
+#         N tenant devices excluded never-backed-up never-policy-run
+IFS= read -r -d '' SQL_DEVICE_EVENTS <<'EOF'
+WITH ev AS (
+    SELECT coalesce(t.name, '-') AS tenant, d.ipaddress, e.event, e.registered, e.details,
+           greatest(extract(epoch FROM (now() AT TIME ZONE 'utc') - e.registered), 0)::bigint AS age,
+           CASE
+               WHEN jsonb_typeof(e.details) = 'object' AND (
+                   e.details ? 'exception'
+                   OR (e.event = 'readout' AND (e.details->>'success' = 'false'
+                                                OR coalesce(e.details->>'error', '') <> '')))
+                   THEN 'failed'
+               WHEN e.phase = 'finished' AND e.details->>'success' = 'true' THEN 'succeeded'
+               ELSE coalesce(e.phase, 'unknown')
+           END AS status
+    FROM deviceevent e
+    JOIN device d ON d.id = e.device_id
+    LEFT JOIN tenant t ON t.id = d.tenant_id
+)
+SELECT 'S', tenant, event, status, count(*)::text,
+       to_char(min(registered), 'YYYY-MM-DD HH24:MI'), max(age)::text,
+       to_char(max(registered), 'YYYY-MM-DD HH24:MI'), min(age)::text
+FROM ev GROUP BY tenant, event, status
+UNION ALL
+SELECT 'E', tenant, event, msg, count(*)::text, min(age)::text,
+       array_to_string((array_agg(ipaddress ORDER BY registered DESC))[1:3], ', '), NULL, NULL
+FROM (SELECT tenant, event, ipaddress, registered, age,
+             left(regexp_replace(coalesce(nullif(details->>'error', ''), details->>'exception', 'no error message'),
+                                 '\s+', ' ', 'g'), 160) AS msg
+      FROM ev WHERE status = 'failed') f
+GROUP BY tenant, event, msg
+UNION ALL
+SELECT 'X', tenant, event, status, count(*)::text, max(age)::text,
+       array_to_string((array_agg(ipaddress ORDER BY registered))[1:3], ', '), NULL, NULL
+FROM ev WHERE status IN ('scheduled', 'started') AND age > @TASK_AGE@
+GROUP BY tenant, event, status
+UNION ALL
+SELECT 'N', coalesce(t.name, '-'), count(*)::text,
+       (count(*) FILTER (WHERE d.exclude))::text,
+       (count(*) FILTER (WHERE NOT d.exclude AND NOT EXISTS (
+           SELECT 1 FROM deviceevent e WHERE e.device_id = d.id AND e.event = 'readout')))::text,
+       (count(*) FILTER (WHERE NOT EXISTS (
+           SELECT 1 FROM deviceevent e WHERE e.device_id = d.id AND e.event = 'exec-rules')))::text,
+       NULL, NULL, NULL
+FROM device d LEFT JOIN tenant t ON t.id = d.tenant_id
+GROUP BY t.name
+EOF
+
+# The device event table of one tenant (-v t=NAME) from the S and N rows.
+IFS= read -r -d '' AWK_EVENTS_TABLE <<'EOF'
+function dur(s) {
+    s += 0
+    if (s >= 86400) return int(s / 86400) "d " int(s % 86400 / 3600) "h"
+    if (s >= 3600) return int(s / 3600) "h " int(s % 3600 / 60) "m"
+    if (s >= 60) return int(s / 60) "m " s % 60 "s"
+    return s "s"
+}
+function label(e) { return e == "readout" ? "backup" : e == "exec-rules" ? "policy run" : e == "exec-job" ? "job" : e }
+function erank(e) { return e == "readout" ? 1 : e == "exec-rules" ? 2 : e == "exec-job" ? 3 : 4 }
+function srank(s) {
+    return s == "succeeded" ? 1 : s == "finished" ? 2 : s == "failed" ? 3 : s == "cancelled" ? 4 \
+        : s == "started" ? 5 : s == "scheduled" ? 6 : s == "never" ? 9 : 7
+}
+function row(e, s, n, oldest, newest) {
+    key[++nr] = sprintf("%d %d %s %s", erank(e), srank(s), e, s)
+    line[nr] = sprintf("%-11s %-10s %7d  %-30s %s", label(e), s == "started" ? "running" : s, n, oldest, newest)
+}
+BEGIN { FS = "\t" }
+$2 != t { next }
+$1 == "S" { row($3, $4, $5, $6 " (" dur($7) " ago)", $8 " (" dur($9) " ago)") }
+$1 == "N" {
+    if ($5 > 0) row("readout", "never", $5, "", "")
+    if ($6 > 0) row("exec-rules", "never", $6, "", "")
+}
+END {
+    for (i = 2; i <= nr; i++)
+        for (j = i; j > 1 && key[j - 1] > key[j]; j--) {
+            k = key[j]; key[j] = key[j - 1]; key[j - 1] = k
+            l = line[j]; line[j] = line[j - 1]; line[j - 1] = l
+        }
+    printf "%-11s %-10s %7s  %-30s %s\n", "", "status", "devices", "oldest (UTC)", "newest (UTC)"
+    for (i = 1; i <= nr; i++) { sub(/ +$/, "", line[i]); print line[i] }
+}
+EOF
+
+# Flatten the normalized YAML of 'docker compose config' to one line per
+# setting: service<TAB>path<TAB>value, e.g. "api<TAB>environment.LOG_LEVEL<TAB>INFO".
+# Lists of scalars become one value like "[CMD-SHELL, pg_isready]", a list
+# of maps one line per item, with ports and volumes as host:container.
+IFS= read -r -d '' AWK_FLAT <<'EOF'
+function unquote(s) {
+    if (s ~ /^".*"$/ || s ~ /^'.*'$/) s = substr(s, 2, length(s) - 2)
+    return s
+}
+function path(d,   p, k) {
+    p = ""
+    for (k = 3; k <= d; k++) if (kind[k] != "item") p = p (p == "" ? "" : ".") name[k]
+    return p
+}
+# the innermost list item open at or above level d, 0 if none
+function item_at(d,   k) {
+    for (k = d; k >= 3; k--) if (kind[k] == "item") return k
+    return 0
+}
+function leaf(d, v,   it, p, k) {
+    it = item_at(d)
+    if (it) {
+        p = ""
+        for (k = it + 1; k <= d; k++) p = p (p == "" ? "" : ".") name[k]
+        field[it, p] = v
+        buf[it] = buf[it] (buf[it] == "" ? "" : " ") p "=" v
+    } else {
+        print svc "\t" path(d) "\t" v
+    }
+}
+function close_item(d,   v, lk, f, sf) {
+    lk = name[d - 1]
+    if (lk == "ports") {
+        v = field[d, "published"] ":" field[d, "target"]
+        if (field[d, "host_ip"] != "") v = field[d, "host_ip"] ":" v
+        if (field[d, "protocol"] != "" && field[d, "protocol"] != "tcp") v = v "/" field[d, "protocol"]
+    } else if (lk == "volumes" && field[d, "target"] != "") {
+        v = (field[d, "source"] != "" ? field[d, "source"] ":" : "") field[d, "target"]
+        if (field[d, "read_only"] == "true") v = v ":ro"
+    } else {
+        v = buf[d]
+    }
+    for (f in field) { split(f, sf, SUBSEP); if (sf[1] == d) delete field[f] }
+    buf[d] = ""
+    leaf(d - 1, v)
+}
+# close every level indented at least i
+function pop(i) {
+    while (depth >= 3 && ind[depth] >= i) {
+        if (kind[depth] == "item") close_item(depth)
+        else if (kind[depth] == "list") leaf(depth, "[" lst[depth] "]")
+        else if (kind[depth] == "key" && !kids[depth]) leaf(depth, "")
+        depth--
+    }
+}
+function flush_block() {
+    if (!blk) return
+    blk = 0
+    if (blkitem) { lst[depth] = lst[depth] (lst[depth] == "" ? "" : ", ") blkval; kind[depth] = "list" }
+    else { leaf(depth, blkval); depth-- }
+}
+# "key: value" or "key:" indented i
+function keyval(t, i,   k, v, p) {
+    if (t ~ /^"/) {
+        p = index(substr(t, 2), "\"") + 1
+        k = substr(t, 2, p - 2)
+        v = substr(t, p + 2)
+    } else {
+        p = index(t, ":")
+        k = substr(t, 1, p - 1)
+        v = substr(t, p + 1)
+    }
+    sub(/^ /, "", v)
+    kids[depth] = 1
+    depth++
+    ind[depth] = i; name[depth] = k; kind[depth] = "key"; kids[depth] = 0; lst[depth] = ""
+    if (v == "") return
+    if (v ~ /^[|>][-+]?$/) { blk = 1; blkind = i; blkval = ""; blkitem = 0; return }
+    leaf(depth, unquote(v))
+    depth--
+}
+{
+    sub(/\r$/, "")
+    if ($0 ~ /^ *$/) next
+    match($0, /^ */)
+    i = RLENGTH
+    t = substr($0, i + 1)
+    if (blk) {
+        if (i > blkind) { blkval = blkval (blkval == "" ? "" : "\\n") t; next }
+        flush_block()
+    }
+    if (i == 0) {
+        pop(0)
+        depth = 0
+        insvc = (t == "services:")
+        next
+    }
+    if (!insvc) next
+    if (i == 2) {
+        pop(2)
+        depth = 2
+        svc = unquote(substr(t, 1, length(t) - 1))
+        ind[2] = 2; kids[2] = 0
+        next
+    }
+    pop(i)
+    if (t ~ /^- /) {
+        t = substr(t, 3)
+        kids[depth] = 1
+        if (t ~ /^("[^"]*"|[^ "]+):( |$)/) {
+            depth++
+            ind[depth] = i; name[depth] = ""; kind[depth] = "item"; buf[depth] = ""
+            keyval(t, i + 2)
+        } else if (t ~ /^[|>][-+]?$/) {
+            blk = 1; blkind = i; blkval = ""; blkitem = 1
+        } else {
+            kind[depth] = "list"
+            lst[depth] = lst[depth] (lst[depth] == "" ? "" : ", ") unquote(t)
+        }
+        next
+    }
+    keyval(t, i)
+}
+END { flush_block(); pop(0) }
+EOF
+
+# Compare two flattened compose configs, the first file the base. Secrets
+# are masked. Output: R<TAB>service (removed), A<TAB>service<TAB>image (added),
+# C<TAB>services<TAB>path<TAB>added|removed|changed<TAB>what changed; when the
+# same setting differs in more than 3 services one C line lists them all
+# without what changed, e.g. container_name in an override that resets it.
+IFS= read -r -d '' AWK_CDIFF <<'EOF'
+function mask(p, v) {
+    sub(/^.*\./, "", p)
+    if (v != "" && tolower(p) ~ /passw|secret|token|key|credential/) return "***"
+    gsub(/:[^:\/@ ]+@/, ":***@", v)
+    return v
+}
+# the values of k on side s (b or c), sorted and joined with ", "; masked if m
+function joined(s, k, m,   n, i, j, t, a) {
+    n = s == "b" ? bn[k] : cn[k]
+    for (i = 1; i <= n; i++) {
+        a[i] = s == "b" ? bv[k, i] : cv[k, i]
+        if (m) a[i] = mask(path_of[k], a[i])
+    }
+    for (i = 2; i <= n; i++) for (j = i; j > 1 && a[j - 1] > a[j]; j--) { t = a[j]; a[j] = a[j - 1]; a[j - 1] = t }
+    t = ""
+    for (i = 1; i <= n; i++) t = t (i > 1 ? ", " : "") a[i]
+    return t
+}
+# the values of k on side s that the other side does not have
+function only(s, k,   o, n, i, j, t, v, found) {
+    o = s == "b" ? "c" : "b"
+    n = s == "b" ? bn[k] : cn[k]
+    t = ""
+    for (i = 1; i <= n; i++) {
+        v = s == "b" ? bv[k, i] : cv[k, i]
+        found = 0
+        for (j = 1; j <= (o == "b" ? bn[k] : cn[k]); j++)
+            if (v == (o == "b" ? bv[k, j] : cv[k, j])) found = 1
+        if (!found) t = t (t == "" ? "" : ", ") mask(path_of[k], v)
+    }
+    return t
+}
+function seen(s, p,   k) {
+    k = s SUBSEP p
+    if (!(k in known)) { known[k] = 1; order[++nk] = k; svc_of[k] = s; path_of[k] = p }
+    return k
+}
+BEGIN { FS = "\t" }
+FNR == NR { bs[$1] = 1; k = seen($1, $2); bv[k, ++bn[k]] = $3; next }
+{ cs[$1] = 1; k = seen($1, $2); cv[k, ++cn[k]] = $3 }
+END {
+    for (s in bs) if (!(s in cs)) print "R\t" s
+    for (s in cs) if (!(s in bs)) print "A\t" s "\t" cv[s SUBSEP "image", 1]
+    for (i = 1; i <= nk; i++) {
+        k = order[i]
+        s = svc_of[k]; p = path_of[k]
+        if (!(s in bs) || !(s in cs)) continue
+        if (joined("b", k, 0) == joined("c", k, 0)) continue
+        ob = joined("b", k, 1); oc = joined("c", k, 1)
+        if (!bn[k]) { how = "added"; text = oc }
+        else if (!cn[k]) { how = "removed"; text = "was " ob }
+        else if (bn[k] == 1 && cn[k] == 1) { how = "changed"; text = ob " -> " oc }
+        else {
+            how = "changed"
+            r = only("b", k); a = only("c", k)
+            text = (r != "" ? "removed " r : "") (r != "" && a != "" ? "; " : "") (a != "" ? "added " a : "")
+        }
+        g = p SUBSEP how SUBSEP text
+        if (!(g in gsvc)) { gorder[++ng] = g; gp[g] = p; gh[g] = how; gt[g] = text; pc[p SUBSEP how]++ }
+        gsvc[g] = gsvc[g] (gsvc[g] == "" ? "" : ", ") s
+    }
+    for (i = 1; i <= ng; i++) {
+        g = gorder[i]
+        ph = gp[g] SUBSEP gh[g]
+        if (pc[ph] > 3) {
+            all[ph] = all[ph] (all[ph] == "" ? "" : ", ") gsvc[g]
+            if (!(ph in first)) first[ph] = i
+        }
+    }
+    for (i = 1; i <= ng; i++) {
+        g = gorder[i]
+        ph = gp[g] SUBSEP gh[g]
+        if (pc[ph] <= 3) print "C\t" gsvc[g] "\t" gp[g] "\t" gh[g] "\t" gt[g]
+        else if (first[ph] == i) print "C\t" all[ph] "\t" gp[g] "\t" gh[g] "\t"
+    }
+}
 EOF
 
 # Disk and inode usage of paths: DF_SH LABEL PATH [LABEL PATH]...
@@ -903,9 +1371,9 @@ alembic_cmd() {
     fi
 }
 
-# print the revision(s) in the alembic_version table
-db_revision() {
-    local dbc name user out c
+# db_query SQL: print the rows of a query, tab-separated
+db_query() {
+    local dbc name user out c rc
     dbc=
     case "$DB_HP" in
         db:*) dbc=$(svc_running db) ;;
@@ -913,13 +1381,14 @@ db_revision() {
     if [ -n "$dbc" ]; then
         name=$(env_get "$ENV_API" API_DB_NAME)
         user=$(env_get "$ENV_API" API_DB_USER)
-        if out=$(docker exec "$dbc" psql -X -q -t -A -U "${user:-netpicker}" -d "${name:-netpicker}" \
-            -c 'SELECT version_num FROM alembic_version' </dev/null 2>&1); then
+        if out=$(docker exec "$dbc" psql -X -q -t -A -F "$TAB" -U "${user:-netpicker}" -d "${name:-netpicker}" \
+            -c "$1" </dev/null 2>&1); then
             printf '%s\n' "$out"
             return 0
         fi
+        # the query failed, not the connection: the api code fails the same way
         case "$out" in
-            *alembic_version*) printf '%s\n' "$out"; return 1 ;;
+            *ERROR:*) printf '%s\n' "$out"; return 1 ;;
         esac
     fi
     # external database, or psql did not work: ask the api code
@@ -927,10 +1396,21 @@ db_revision() {
         echo "${out:-no running db, api, celery or committer container to query the database}"
         return 1
     fi
-    out=$(docker exec "$c" python3 -c "$PY_DB_REVISION" </dev/null 2>&1)
-    local rc=$?
-    printf '%s\n' "$out" | tail -n 3
+    out=$(docker exec "$c" python3 -c "$PY_DB_QUERY" "$1" </dev/null 2>&1)
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        printf '%s\n' "$out"
+    else
+        # the exception, not the [SQL: ...] that sqlalchemy prints after it
+        printf '%s\n' "$out" | grep -E '^[A-Za-z_.]+(Error|Exception)[:(]' | tail -n 1 | grep . ||
+            printf '%s\n' "$out" | tail -n 3
+    fi
     return $rc
+}
+
+# print the revision(s) in the alembic_version table
+db_revision() {
+    db_query 'SELECT version_num FROM alembic_version'
 }
 
 health_output() {
@@ -970,7 +1450,7 @@ detect_project() {
 }
 
 print_environment() {
-    local files ref ver c os kernel ncpu mem driver
+    local ref ver c os kernel ncpu mem driver
     section "Environment"
     info "Host $(hostname), $(date '+%Y-%m-%d %H:%M:%S %Z'), Docker $DOCKER_VERSION"
     if [ -n "$DOCKER_INFO" ]; then
@@ -980,15 +1460,154 @@ EOF
         info "Docker runs on $os, kernel $kernel, $ncpu CPU(s), $(human_kib $((mem / 1024))) memory, storage driver $driver"
     fi
     info "Compose project $PROJECT with $(printf '%s\n' "$CTR" | grep -c .) containers"
+    [ -z "$COMPOSE_FILES" ] || info "Compose files: $(printf '%s\n' "$COMPOSE_FILES" | paste -sd, - | sed 's/,/, /g')"
     if [ -n "$API_ANY" ]; then
-        files=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$API_ANY" 2>/dev/null)
-        [ -z "$files" ] || info "Compose files: $files"
         ref=$(ctr_field "$API_ANY" 9)
         c=$(svc_running api)
         if [ -n "$c" ]; then
             ver=$(docker exec "$c" python3 -c 'import importlib.metadata as m; print(m.version("netyce-api"))' </dev/null 2>/dev/null)
         fi
         info "api image $ref${ver:+ (netyce-api $ver)}"
+    fi
+}
+
+# the version number in the root page of the frontend, which newer frontend
+# builds put in <meta name="netpicker-version" content="2.8.1">; the login page
+# shows it too, but only once the app runs in a browser
+frontend_version() {
+    local c html
+    c=$(svc_running frontend)
+    [ -n "$c" ] || return 1
+    html=$(docker exec "$c" wget -q -T 5 -O - http://127.0.0.1/ </dev/null 2>/dev/null) ||
+        html=$(docker exec "$c" wget -q -T 5 --no-check-certificate -O - https://127.0.0.1/ </dev/null 2>/dev/null) ||
+        return 1
+    printf '%s\n' "$html" | grep -o -i -E 'version[^0-9<]{0,40}[0-9]+(\.[0-9]+)+(-[0-9A-Za-z.]+)?' | sed -n 1p |
+        grep -o -E '[0-9]+(\.[0-9]+)+(-[0-9A-Za-z.]+)?$'
+}
+
+# image_version CONTAINER: the version in the image tag of the container, or
+# in another tag of the same image (latest is the same image as the release
+# when both were pulled)
+image_version() {
+    local ref v
+    ref=$(ctr_field "$1" 9)
+    v=$(printf '%s\n' "${ref##*:}" | grep -E "$VERSION_RE")
+    if [ -n "$v" ]; then
+        printf '%s\n' "$v"
+        return
+    fi
+    docker image inspect -f '{{range .RepoTags}}{{println .}}{{end}}' "$(ctr_field "$1" 8)" 2>/dev/null |
+        sed -n 's/^.*:\([^:/]*\)$/\1/p' | grep -E "$VERSION_RE" | ver_max
+}
+
+# Set REPO_VERSION to the release this checkout belongs to and REPO_VERSION_HOW
+# to why. Releases are tagged on release branches that fork off main, so
+# HEAD belongs to the newest release that is in its history: either the tag
+# is an ancestor of HEAD, or its release branch forked off an ancestor (main
+# after the 2.8.1 release branch forked off is 2.8.1). Tags whose history
+# contains HEAD are later releases.
+repo_version() {
+    local head t mb depth best= best_depth=-1 best_mb= n
+    REPO_VERSION= REPO_VERSION_HOW=
+    head=$(rgit rev-parse HEAD 2>/dev/null) || return 1
+    t=$(rgit tag --points-at HEAD | grep -E "$VERSION_RE" | ver_max)
+    if [ -n "$t" ]; then
+        REPO_VERSION=$t
+        REPO_VERSION_HOW="tagged $t"
+        return 0
+    fi
+    for t in $(rgit tag -l | grep -E "$RELEASE_RE"); do
+        mb=$(rgit merge-base HEAD "$t" 2>/dev/null) || continue
+        [ "$mb" != "$head" ] || continue
+        depth=$(rgit rev-list --count "$mb")
+        if [ "$depth" -gt "$best_depth" ] ||
+            { [ "$depth" -eq "$best_depth" ] && [ "$(ver_cmp "$t" "$best")" -gt 0 ]; }; then
+            best=$t best_depth=$depth best_mb=$mb
+        fi
+    done
+    [ -n "$best" ] || return 1
+    n=$(rgit rev-list --count "$best_mb..HEAD")
+    REPO_VERSION=$best
+    if [ "$(rgit rev-parse "$best^{commit}")" = "$best_mb" ]; then
+        REPO_VERSION_HOW="$n commit(s) after the tag $best"
+    else
+        REPO_VERSION_HOW="$n commit(s) after the release branch of $best forked off"
+    fi
+}
+
+check_version() {
+    local svc c v ref why branch newest age vers
+    section "Netpicker version"
+    RUN_VERSION=
+    if [ -z "$(svc_running frontend)" ]; then
+        why="the frontend does not run"
+    elif v=$(frontend_version); [ -n "$v" ]; then
+        RUN_VERSION=$v
+        info "the frontend publishes version $v in its root page"
+    else
+        why="the root page of the frontend has no version number"
+    fi
+    if [ -z "$RUN_VERSION" ]; then
+        for svc in frontend api; do
+            c=$(svc_any "$svc")
+            [ -n "$c" ] || continue
+            v=$(image_version "$c")
+            [ -n "$v" ] || continue
+            RUN_VERSION=$v
+            ref=$(ctr_field "$c" 9)
+            if [ "${ref##*:}" = "$v" ]; then
+                info "Netpicker $v runs: the $svc image is $ref ($why)"
+            else
+                info "Netpicker $v runs: the $svc image $ref is the same image as $v ($why)"
+            fi
+            break
+        done
+    fi
+    if [ -z "$RUN_VERSION" ]; then
+        c=$(svc_any frontend)
+        info "cannot tell which version runs: $why and the images have no version tag"
+        if [ -n "$c" ]; then
+            detail "the frontend image $(ctr_field "$c" 9) was built $(docker image inspect -f '{{.Created}}' "$(ctr_field "$c" 8)" 2>/dev/null | cut -c1-10)"
+        fi
+    fi
+
+    # the netpicker images, apart from db and minio that have their own versions
+    vers=$(printf '%s\n' "$CTR" | awk -F'|' '$3 == "running" && $9 ~ /(^|\/)netpicker\// && $9 !~ /netpicker\/(db|minio)(:|$)/ { print $1 "|" $2 }' |
+        while IFS='|' read -r svc c; do
+            v=$(image_version "$c")
+            [ -z "$v" ] || printf '%s %s\n' "$v" "$svc"
+        done | sort -u)
+    if [ "$(printf '%s\n' "$vers" | awk 'NF { print $1 }' | sort -u | grep -c .)" -gt 1 ]; then
+        warn "the containers run different Netpicker versions: $(printf '%s\n' "$vers" | awk '
+            { s[$1] = s[$1] (s[$1] == "" ? "" : ", ") $2 }
+            END { for (v in s) printf "%s%s (%s)", (n++ ? "; " : ""), v, s[v]; print "" }'); update them with 'docker compose pull && docker compose up -d'"
+    fi
+
+    if [ -z "$REPO" ]; then
+        info "$REPO_ERR; skipped the comparison with the release tags"
+        return
+    fi
+    if ! repo_version; then
+        info "no release tags in $REPO; get them with 'git fetch --tags'"
+        return
+    fi
+    branch=$(rgit symbolic-ref --short -q HEAD) || branch="detached HEAD"
+    info "the repo $REPO is at $REPO_VERSION: $branch $(rgit rev-parse --short HEAD), $REPO_VERSION_HOW"
+    if [ -n "$RUN_VERSION" ]; then
+        case $(ver_cmp "$RUN_VERSION" "$REPO_VERSION") in
+            0) pass "the stack runs $RUN_VERSION, the version of the repo" ;;
+            1) warn "the stack runs $RUN_VERSION, newer than the repo ($REPO_VERSION); 'git pull' to get the compose files of $RUN_VERSION" ;;
+            *) warn "the stack runs $RUN_VERSION, older than the repo ($REPO_VERSION); update the images with 'docker compose pull && docker compose up -d'" ;;
+        esac
+        if ! rgit rev-parse -q --verify "refs/tags/$RUN_VERSION" >/dev/null &&
+            ! rgit rev-parse -q --verify "refs/tags/v$RUN_VERSION" >/dev/null; then
+            detail "$RUN_VERSION is not a tag in this clone; 'git fetch --tags' gets the tags of newer releases"
+        fi
+    fi
+    newest=$(rgit tag -l | grep -E "$RELEASE_RE" | ver_max)
+    if [ -n "$newest" ] && [ "$(ver_cmp "$newest" "${RUN_VERSION:-$REPO_VERSION}")" -gt 0 ]; then
+        age=$(fetch_age)
+        info "release $newest is available${age:+ (the newest tag as of the last 'git fetch', $(human_duration "$age") ago)}"
     fi
 }
 
@@ -1073,11 +1692,10 @@ EOF
 # Docker root, the compose directory and every volume of the running
 # containers; the volumes that cannot be checked go to $WORK/df-skipped
 disk_rows() {
-    local wd running mounts c cn vol dest svc out seen=" "
-    wd=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$API_ANY" 2>/dev/null)
+    local running mounts c cn vol dest svc out seen=" "
     set -- "host /" /
     [ -z "$DOCKER_ROOT" ] || [ ! -d "$DOCKER_ROOT" ] || set -- "$@" "docker root" "$DOCKER_ROOT"
-    [ -z "$wd" ] || [ ! -d "$wd" ] || set -- "$@" "compose dir" "$wd"
+    [ -z "$COMPOSE_WD" ] || [ ! -d "$COMPOSE_WD" ] || set -- "$@" "compose dir" "$COMPOSE_WD"
     sh -c "$DF_SH" df "$@"
 
     # a volume is on the Docker host, which is not necessarily this machine
@@ -1245,6 +1863,279 @@ check_containers() {
         esac
         check_service "$svc" warn
     done
+}
+
+# file_role PATH STACK_FILES MOUNTS: what a changed file of the repo is to the
+# stack; STACK_FILES are the compose files of the stack and MOUNTS the
+# service|path|destination of the bind mounts, both with paths in the repo
+file_role() {
+    local svcs
+    if printf '%s\n' "$2" | grep -qxF -- "$1"; then
+        echo "a compose file of the running stack"
+        return
+    fi
+    svcs=$(printf '%s\n' "$3" | awk -F'|' -v p="$1" '
+        $2 != "" && (p == $2 || index(p, $2 "/") == 1) && !seen[$1 $3]++ { printf "%s%s (%s)", (n++ ? ", " : ""), $1, $3 }')
+    if [ -n "$svcs" ]; then
+        echo "mounted into $svcs"
+        return
+    fi
+    case "$1" in
+        "${WD_PREFIX}docker-compose.override.yml" | "${WD_PREFIX}docker-compose.override.yaml" | \
+            "${WD_PREFIX}compose.override.yml" | "${WD_PREFIX}compose.override.yaml")
+            echo "not used by the running stack, but the next 'docker compose up' reads it" ;;
+        "${WD_PREFIX}.env") echo "sets the variables of the compose files" ;;
+        netpicker-chart/*) echo "the Helm chart, not used by Docker Compose" ;;
+        podman/*) echo "for Podman, not used by Docker Compose" ;;
+        docs/* | *.md) echo "documentation" ;;
+        *.sh) echo "a script" ;;
+        *.yml | *.yaml) echo "a compose file the running stack does not use" ;;
+    esac
+}
+
+# What the local changes do to the compose config of the stack: compare the
+# config from the compose files at $BASE with the config from the files now.
+# Sets CHANGED_SVCS to the services the changes alter.
+compose_impact() {
+    local out kind a b c d line rel vols warns= details= n=0 max=10
+    CHANGED_SVCS=" " REMOVED_SVCS=" "
+    [ $VERBOSE -eq 0 ] || max=100
+    rel=$(printf '%s\n' "$STACK_REL" | while IFS= read -r rel; do
+        [ -n "$rel" ] && rgit cat-file -e "$BASE:$rel" 2>/dev/null && { echo "$rel"; break; }
+    done)
+    if [ -z "$rel" ]; then
+        info "the compose files of the stack were not in the repo at $(rgit rev-parse --short "$BASE"), so there is nothing to compare them with"
+        return
+    fi
+    if ! compose_run base config >"$WORK/compose-base.yml" 2>"$WORK/compose.err"; then
+        info "cannot read the compose files as they were at $(rgit rev-parse --short "$BASE"): $(grep . "$WORK/compose.err" | tail -n 1)"
+        return
+    fi
+    awk "$AWK_FLAT" "$WORK/compose-base.yml" >"$WORK/compose-base.flat"
+    printf '%s\n' "$CUR_CFG" | awk "$AWK_FLAT" >"$WORK/compose-cur.flat"
+    out=$(awk "$AWK_CDIFF" "$WORK/compose-base.flat" "$WORK/compose-cur.flat")
+    if [ -z "$out" ]; then
+        pass "the local changes leave the compose config of the stack as it is in the repo"
+        return
+    fi
+    while IFS="$TAB" read -r kind a b c d; do
+        case "$kind" in
+            R)
+                CHANGED_SVCS="$CHANGED_SVCS$a "
+                REMOVED_SVCS="$REMOVED_SVCS$a "
+                case " $REQUIRED_SERVICES " in
+                    *" $a "*) fail "$(pad "$a") removed from the compose config by the local changes; Netpicker does not work without it" ;;
+                    *) warn "$(pad "$a") removed from the compose config by the local changes" ;;
+                esac
+                if [ -n "$(svc_containers "$a")" ]; then
+                    detail "its container still exists from before; 'docker compose up -d --remove-orphans' removes it"
+                else
+                    detail "that is why it has no container"
+                fi
+                ;;
+            A)
+                CHANGED_SVCS="$CHANGED_SVCS$a "
+                info "$(pad "$a") added by the local changes${b:+ (image $b)}"
+                ;;
+            C)
+                CHANGED_SVCS="$CHANGED_SVCS$(printf '%s' "$a" | sed 's/, / /g') "
+                vols=
+                case "$c/$d" in
+                    removed/*) vols=${d#was } ;;
+                    changed/removed*) vols=${d#removed }; vols=${vols%%; added *} ;;
+                esac
+                if [ "$b" = image ] && [ -n "$d" ]; then
+                    warns="$warns$a: the local changes run another image than the repo: $d$TAB"
+                elif [ "$b" = volumes ] && [ -n "$vols" ]; then
+                    warns="$warns$a: the local changes no longer mount $vols, so the data written there is not kept or shared$TAB"
+                else
+                    n=$((n + 1))
+                    [ $n -gt $max ] || details="$details$a: $b $c${d:+: $d}$TAB"
+                fi
+                ;;
+        esac
+    done <<EOF
+$out
+EOF
+    while IFS= read -r line; do
+        [ -z "$line" ] || warn "$line"
+    done <<EOF
+$(printf '%s' "$warns" | tr "$TAB" '\n')
+EOF
+    if [ $n -gt 0 ]; then
+        if [ -n "$warns" ]; then
+            info "the local changes also alter $n other setting(s) of the compose config:"
+        else
+            info "the local changes alter $n setting(s) of the compose config:"
+        fi
+        printf '%s' "$details" | tr "$TAB" '\n' | details
+        [ $n -le $max ] || detail "... and $((n - max)) more; see them all with --verbose"
+    fi
+}
+
+# The local changes to the repo: commits not on the upstream branch, and
+# uncommitted and untracked files. Sets BASE to the commit they are relative to.
+repo_changes() {
+    local up behind ahead age files baks n ntracked path what lines role mounts running f max=10
+    [ $VERBOSE -eq 0 ] || max=50
+    # the compose files of the stack, with their paths in the repo
+    STACK_REL=$(printf '%s\n' "$COMPOSE_FILES" | while IFS= read -r f; do repo_rel "$f"; done)
+    up=$(rgit rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
+    if [ -n "$up" ]; then
+        BASE=$(rgit merge-base HEAD "$up")
+        read -r behind ahead <<EOF
+$(rgit rev-list --left-right --count "$up...HEAD")
+EOF
+        if [ "${behind:-0}" -gt 0 ]; then
+            age=$(fetch_age)
+            info "$behind commit(s) on $up are not pulled yet${age:+ (as of the last 'git fetch', $(human_duration "$age") ago)}; update.sh pulls them"
+        fi
+        if [ "${ahead:-0}" -gt 0 ]; then
+            info "$ahead local commit(s) that are not on $up:"
+            rgit log --format='%h %ad %s' --date=short "$up..HEAD" | head -n "$max" | details
+        fi
+    else
+        BASE=$(rgit rev-parse HEAD)
+        info "$(rgit symbolic-ref --short -q HEAD || echo 'the detached HEAD') has no upstream branch; showing the changes since the last commit"
+    fi
+
+    # path<TAB>what<TAB>line counts: git status for the uncommitted and
+    # untracked files, git diff for the local commits and the line counts
+    files=$({
+        rgit status --porcelain --no-renames --untracked-files=all | sed "s/^/S$TAB/"
+        rgit diff --name-status --no-renames "$BASE" HEAD | sed "s/^/C$TAB/"
+        rgit diff --numstat --no-renames "$BASE" | sed "s/^/N$TAB/"
+    } | awk -F'\t' '
+        function add(p) { if (!(p in seen)) { seen[p] = 1; order[++n] = p } }
+        $1 == "S" { p = substr($2, 4); add(p); st[p] = substr($2, 1, 2); next }
+        $1 == "C" { add($3); cm[$3] = $2; next }
+        $1 == "N" { lines[$4] = $2 == "-" ? "binary" : "+" $2 " -" $3 }
+        END {
+            for (i = 1; i <= n; i++) {
+                p = order[i]
+                if (st[p] == "??") {
+                    what = "new, not committed"
+                } else {
+                    c = st[p] != "" ? st[p] : cm[p]
+                    what = c ~ /D/ ? "deleted" : c ~ /A/ ? "added" : "modified"
+                    what = what ", " (st[p] == "" ? "committed locally" : cm[p] == "" ? "not committed" : "committed locally and changed since")
+                }
+                print p "\t" what "\t" lines[p]
+            }
+        }')
+    # copies update.sh makes before it pulls
+    baks=$(printf '%s\n' "$files" | awk -F'\t' '$2 ~ /^new/ && $1 ~ /\.bak\.[0-9]+$/ { print $1 }')
+    files=$(printf '%s\n' "$files" | awk -F'\t' 'NF && !($2 ~ /^new/ && $1 ~ /\.bak\.[0-9]+$/)')
+    n=$(printf '%s\n' "$files" | grep -c .)
+
+    if [ "$n" -eq 0 ]; then
+        pass "no local changes: the files are as in ${up:-the last commit} ($(rgit rev-parse --short "$BASE"))"
+    else
+        running=$(printf '%s\n' "$CTR" | awk -F'|' '$3 == "running" { print $2 }')
+        # shellcheck disable=SC2086
+        mounts=$([ -z "$running" ] || docker inspect -f '{{$s := index .Config.Labels "com.docker.compose.service"}}{{range .Mounts}}{{if eq .Type "bind"}}{{$s}}|{{.Source}}|{{.Destination}}{{"\n"}}{{end}}{{end}}' $running 2>/dev/null |
+            while IFS='|' read -r svc src dest; do
+                [ -n "$src" ] && src=$(repo_rel "$src") && printf '%s|%s|%s\n' "$svc" "$src" "$dest"
+            done)
+        info "$n file(s) differ from ${up:-the last commit} ($(rgit rev-parse --short "$BASE")):"
+        printf '%s\n' "$files" | head -n "$max" | while IFS="$TAB" read -r path what lines; do
+            if [ -z "$lines" ] && [ "${what%%,*}" = new ] && [ -f "$REPO/$path" ]; then
+                lines="$(wc -l <"$REPO/$path" | tr -d ' ') lines"
+            fi
+            role=$(file_role "$path" "$STACK_REL" "$mounts")
+            detail "$path: $what${lines:+ ($lines)}${role:+; $role}"
+            if [ $VERBOSE -eq 1 ] && [ "${what%%,*}" = modified ]; then
+                rgit diff --no-ext-diff --no-textconv --no-color "$BASE" -- "$path" | tail -n +5 | head -n 40 | redact |
+                    sed 's/^/    /' | details
+            fi
+        done
+        [ "$n" -le "$max" ] || detail "... and $((n - max)) more; see 'git -C $REPO status'"
+        ntracked=$(printf '%s\n' "$files" | awk -F'\t' '$2 !~ /^new/ && $2 ~ /(not committed|changed since)$/' | grep -c .)
+        if [ "$ntracked" -gt 0 ] && [ -n "$up" ]; then
+            warn "$ntracked file(s) of the repo have uncommitted changes, so 'git pull' (update.sh) stops when $up changes them too; commit them, or keep local settings in docker-compose.override.yml (see docker-compose.override.yml.sample)"
+        fi
+    fi
+    if [ -n "$baks" ]; then
+        info "$(printf '%s\n' "$baks" | head -n 1)$([ "$(printf '%s\n' "$baks" | grep -c .)" -le 1 ] || echo " and $(($(printf '%s\n' "$baks" | grep -c .) - 1)) more"): copies update.sh made before it pulled, safe to delete"
+    fi
+
+    [ -n "$CUR_CFG" ] || return 0
+    # only the compose files of the stack change its config
+    printf '%s\n' "$files" | awk -F'\t' 'NR == FNR { if ($0 != "") stack[$0] = 1; next } $1 in stack { hit = 1 } END { exit !hit }' \
+        <(printf '%s\n' "$STACK_REL") - || return 0
+    compose_impact
+}
+
+# Do the containers match the compose files? 'docker compose up -d' recreates
+# the containers whose config hash differs from the hash of the files.
+compose_drift() {
+    local hashes labels svc name hash want stale_local= stale_other= orphans= missing= n=0
+    if ! hashes=$(compose_run current config --hash '*' 2>/dev/null); then
+        info "this docker compose cannot print config hashes; skipped the comparison of the containers with the compose files"
+        return
+    fi
+    labels=$(printf '%s\n' "$CTR" | cut -d'|' -f2 |
+        xargs docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}|{{.Name}}|{{index .Config.Labels "com.docker.compose.config-hash"}}' 2>/dev/null |
+        sed 's#|/#|#')
+    while IFS='|' read -r svc name hash; do
+        [ -n "$name" ] || continue
+        n=$((n + 1))
+        want=$(printf '%s\n' "$hashes" | awk -v s="$svc" '$1 == s { print $2; exit }')
+        if [ -z "$want" ]; then
+            # reported with the local changes that removed it
+            case "$REMOVED_SVCS" in
+                *" $svc "*) ;;
+                *) orphans="$orphans, $name ($svc)" ;;
+            esac
+        elif [ "$want" != "$hash" ]; then
+            case "$CHANGED_SVCS" in
+                *" $svc "*) stale_local="$stale_local, $name" ;;
+                *) stale_other="$stale_other, $name" ;;
+            esac
+        fi
+    done <<EOF
+$labels
+EOF
+    while read -r svc _; do
+        [ -n "$svc" ] && [ -z "$(svc_containers "$svc")" ] || continue
+        case " $REQUIRED_SERVICES $OPTIONAL_SERVICES " in
+            # reported with the containers
+            *" $svc "*) ;;
+            *) missing="$missing, $svc" ;;
+        esac
+    done <<EOF
+$hashes
+EOF
+    [ -z "$stale_local" ] || warn "the local changes are not applied to ${stale_local#, } yet; 'docker compose up -d' recreates them with the changes"
+    [ -z "$stale_other" ] || warn "${stale_other#, } differ from the compose files ('git pull' or a Docker Compose upgrade since they were created?); 'docker compose up -d' recreates them"
+    [ -z "$orphans" ] || warn "not in the compose files any more: ${orphans#, }; 'docker compose up -d --remove-orphans' removes them"
+    [ -z "$missing" ] || warn "in the compose files but without a container: ${missing#, }; 'docker compose up -d' creates them"
+    if [ -z "$stale_local$stale_other$orphans$missing" ]; then
+        pass "all $n container(s) match the compose files"
+    fi
+}
+
+check_compose() {
+    section "Compose files and local changes${REPO:+ ($REPO)}"
+    CUR_CFG= CHANGED_SVCS=" " REMOVED_SVCS=" "
+    if [ -z "$COMPOSE_WD" ] || [ -z "$COMPOSE_FILES" ]; then
+        info "the containers have no docker compose labels; skipped"
+        return
+    fi
+    if ! docker compose version >/dev/null 2>&1; then
+        info "docker compose (v2) is not installed; skipped reading the compose files"
+    elif ! CUR_CFG=$(compose_run current config 2>"$WORK/compose.err"); then
+        CUR_CFG=
+        fail "cannot read the compose files of the stack, so 'docker compose up' fails too: $(grep . "$WORK/compose.err" | tail -n 1)"
+    fi
+    if [ -z "$REPO" ]; then
+        info "$REPO_ERR; skipped the local changes"
+    elif [ "$STACK_IN_REPO" = 1 ]; then
+        repo_changes
+    else
+        info "the stack runs from $COMPOSE_WD, not from the repo $REPO; skipped its local changes"
+    fi
+    [ -z "$CUR_CFG" ] || compose_drift
 }
 
 # the three containers using the most of a resource, from "name|amount|display" lines on stdin
@@ -1661,7 +2552,8 @@ EOF
         for c in $(svc_containers "$svc"); do
             [ "$(ctr_field "$c" 3)" = running ] || continue
             host=$(ctr_field "$c" 10)
-            if ! cat "$WORK"/inspect.* 2>/dev/null | grep -q "@$host$TAB"; then
+            # not cat | grep -q: with pipefail, cat killed by SIGPIPE after the match fails it
+            if ! grep -q "@$host$TAB" "$WORK"/inspect.* 2>/dev/null; then
                 fail "$(pad "$svc") $c: its celery worker does not answer control commands; it may be hung or overloaded"
             fi
         done
@@ -1816,6 +2708,93 @@ $out
 EOF
 }
 
+event_label() {
+    case "$1" in
+        readout) echo backup ;;
+        exec-rules) echo "policy run" ;;
+        exec-job) echo job ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# report_events TENANT PREFIX: the failed and unfinished backups, policy runs
+# and jobs of one tenant, from the query output in $EVENTS
+report_events() {
+    local t=$1 prefix=$2 ev label total failed what stuck phase count age addrs max=5
+    [ $VERBOSE -eq 0 ] || max=25
+    for ev in $(printf '%s\n' "$EVENTS" | awk -F'\t' -v t="$t" '$1 == "S" && $2 == t && !seen[$3]++ {
+        print ($3 == "readout" ? 1 : $3 == "exec-rules" ? 2 : 3) " " $3 }' | sort | cut -d' ' -f2); do
+        label=$(event_label "$ev")
+        read -r total failed <<EOF
+$(printf '%s\n' "$EVENTS" | awk -F'\t' -v t="$t" -v e="$ev" '$1 == "S" && $2 == t && $3 == e { n += $5; if ($4 == "failed") f += $5 } END { print n + 0, f + 0 }')
+EOF
+        if [ "$failed" -gt 0 ]; then
+            case "$ev" in
+                readout) what="failed their last backup" ;;
+                *) what="had an error in the last $label" ;;
+            esac
+            if [ "$ev" = readout ] && [ "$failed" -eq "$total" ] && [ "$total" -ge 3 ]; then
+                fail "${prefix}all $total device(s) $what:"
+            else
+                warn "${prefix}$failed of $total device(s) $what:"
+            fi
+            printf '%s\n' "$EVENTS" | awk -F'\t' -v t="$t" -v e="$ev" '$1 == "E" && $2 == t && $3 == e' |
+                sort -t "$TAB" -k5,5nr | head -n "$max" |
+                while IFS="$TAB" read -r _ _ _ msg count age addrs; do
+                    detail "$(printf '%4dx  %s (%s%s), the last %s ago' "$count" "$msg" "$addrs" \
+                        "$([ "$count" -le 3 ] || echo ", ...")" "$(human_duration "$age")")"
+                done
+        fi
+        stuck=$(printf '%s\n' "$EVENTS" | awk -F'\t' -v t="$t" -v e="$ev" '$1 == "X" && $2 == t && $3 == e')
+        while IFS="$TAB" read -r _ _ _ phase count age addrs; do
+            [ -n "$phase" ] || continue
+            warn "${prefix}$count $label(s) $phase $(human_duration "$age") ago and not finished ($addrs$([ "$count" -le 3 ] || echo ", ...")); the task was lost or a worker is stuck, see the task queues above"
+        done <<EOF
+$stuck
+EOF
+        if [ "$failed" -eq 0 ] && [ -z "$stuck" ]; then
+            case "$ev" in
+                readout | exec-rules) pass "${prefix}last ${label}s: no errors and none stuck on $total device(s)" ;;
+            esac
+        fi
+    done
+}
+
+check_device_events() {
+    local out rc t total excluded tenants prefix=
+    section "Device backups and policy runs (last event per device)"
+    out=$(db_query "$(printf '%s\n' "$SQL_DEVICE_EVENTS" | sed "s/@TASK_AGE@/$TASK_AGE/")")
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        case "$out" in
+            *'relation "deviceevent" does not exist'*)
+                info "the database has no deviceevent table; this Netpicker version does not record device events" ;;
+            *)
+                warn "could not read the device events from the database:"
+                printf '%s\n' "$out" | tail -n 3 | details
+                ;;
+        esac
+        return
+    fi
+    EVENTS=$out
+    tenants=$(printf '%s\n' "$EVENTS" | awk -F'\t' '$1 == "N" { print $2 }' | sort)
+    if [ -z "$tenants" ]; then
+        info "there are no devices"
+        return
+    fi
+    while IFS= read -r t; do
+        [ "$(printf '%s\n' "$tenants" | grep -c .)" -eq 1 ] || prefix="tenant $t: "
+        IFS="$TAB" read -r total excluded <<EOF
+$(printf '%s\n' "$EVENTS" | awk -F'\t' -v t="$t" '$1 == "N" && $2 == t { print $3 "\t" $4; exit }')
+EOF
+        info "${prefix}$total device(s)$([ "${excluded:-0}" -eq 0 ] || echo ", $excluded excluded from backups")"
+        printf '%s\n' "$EVENTS" | awk -v t="$t" "$AWK_EVENTS_TABLE" | details
+        report_events "$t" "$prefix"
+    done <<EOF
+$tenants
+EOF
+}
+
 check_logs() {
     local svc name out classified n_crit n_err label groups ngroups max clean=
     section "Container logs (errors since $SINCE)"
@@ -1863,12 +2842,12 @@ EOF
 # ---------------------------------------------------------------------------
 # support bundle
 
-# mask secrets in environment variables, compose files and URLs
+# mask secrets in environment variables, compose files (also in a git diff) and URLs
 redact() {
     local words='(PASSWORD|PASSWD|SECRET|TOKEN|APIKEY|API_KEY|KEY|CREDENTIAL|password|passwd|secret|token|apikey|api_key|key|credential)'
     sed -E \
         -e "s/([A-Za-z0-9_.:-]*$words[A-Za-z0-9_.:-]*=)[^\"]*/\1***/g" \
-        -e "s/^([[:space:]-]*\"?[A-Za-z0-9_.:-]*$words[A-Za-z0-9_.:-]*\"?[[:space:]]*:[[:space:]]*).+$/\1***/" \
+        -e "s/^([+[:space:]-]*\"?[A-Za-z0-9_.:-]*$words[A-Za-z0-9_.:-]*\"?[[:space:]]*:[[:space:]]*).+$/\1***/" \
         -e 's#(://[^:/@"[:space:]]*:)[^@/"[:space:]]+@#\1***@#g' \
         -e 's/(requirepass"?,?[[:space:]]*"?)[^"[:space:]]+/\1***/g'
 }
@@ -1882,7 +2861,7 @@ setup_bundle() {
 }
 
 collect_bundle() {
-    local svc name files wd f running dest
+    local svc name f running dest
     [ $BUNDLE -eq 1 ] || return 0
     {
         echo "# date"; date
@@ -1914,15 +2893,22 @@ collect_bundle() {
 $CTR
 EOF
 
-    if [ -n "$API_ANY" ]; then
-        files=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$API_ANY" 2>/dev/null)
-        wd=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$API_ANY" 2>/dev/null)
-        printf '%s\n' "$files" | tr ',' '\n' | while IFS= read -r f; do
-            [ -n "$f" ] && [ -r "$f" ] && redact <"$f" >"$BUNDLE_DIR/compose/$(basename "$f")"
-        done
-        if [ -n "$wd" ] && [ -r "$wd/.env" ]; then
-            redact <"$wd/.env" >"$BUNDLE_DIR/compose/env"
-        fi
+    printf '%s\n' "$COMPOSE_FILES" | while IFS= read -r f; do
+        [ -n "$f" ] && [ -r "$f" ] && redact <"$f" >"$BUNDLE_DIR/compose/$(basename "$f")"
+    done
+    if [ -n "$COMPOSE_WD" ] && [ -r "$COMPOSE_WD/.env" ]; then
+        redact <"$COMPOSE_WD/.env" >"$BUNDLE_DIR/compose/env"
+    fi
+    [ -z "$CUR_CFG" ] || printf '%s\n' "$CUR_CFG" | redact >"$BUNDLE_DIR/compose/effective-config.yml"
+
+    if [ -n "$REPO" ]; then
+        {
+            echo "# repo $REPO"; rgit log -1 --format='%H%d %s'
+            echo; echo "# git status"; rgit status
+            echo; echo "# git log"; rgit log --oneline --decorate -15
+            echo; echo "# local changes since ${BASE:-HEAD}"; rgit diff --no-ext-diff --no-textconv --no-color "${BASE:-HEAD}" | redact
+            echo; echo "# untracked files"; rgit ls-files --others --exclude-standard
+        } >"$BUNDLE_DIR/repo.txt" 2>&1
     fi
 
     {
@@ -1989,15 +2975,20 @@ main() {
     load_containers
     setup_bundle
     resolve_targets
+    load_compose
+    find_repo
     print_environment
+    check_version
     check_host
     check_disk
     check_containers
+    check_compose
     check_resources
     check_migrations
     check_connectivity
     check_redis
     check_workdir
+    check_device_events
     check_logs
     print_summary
     collect_bundle

@@ -2,10 +2,12 @@
 #
 # Troubleshoot a running Netpicker Docker Compose stack.
 #
-# Checks that all services are up and healthy, that the database is at the
-# alembic revision the api image expects, that the containers can reach each
-# other, that the celery task queues in redis are not stuck and that the
-# container logs are free of errors.
+# Checks the host (uptime, load, CPU, memory, disk space), that all services
+# are up, healthy and within their resource limits, that the database is at
+# the alembic revision the api image expects, that the containers can reach
+# each other, that the celery task queues in redis are not stuck, that the git
+# working copies in the policy workdir have no old uncommitted files or stale
+# locks and that the container logs are free of errors.
 #
 # Run it on the Docker host as a user that can access the Docker daemon. It
 # only reads state; when the api container is down it starts a throw-away
@@ -17,9 +19,11 @@ usage() {
     cat <<'EOF'
 Usage: ./troubleshoot.sh [options]
 
-Checks a running Netpicker Docker stack: containers and their health checks,
-the database migration (alembic) revision, connectivity between containers,
-the redis task queues and errors in the container logs.
+Checks a running Netpicker Docker stack: host uptime, CPU, memory and disk
+space, containers with their health checks and resource limits, the database
+migration (alembic) revision, connectivity between containers, the redis task
+queues, uncommitted files in the git repos of the policy workdir and errors in
+the container logs.
 
 Options:
   -p, --project NAME     Docker Compose project name (default: auto-detect)
@@ -57,6 +61,15 @@ ONESHOT_SERVICES="db_migration"
 
 INSPECT_TIMEOUT=2
 BUNDLE_LOG_TAIL=20000
+
+# resource thresholds in percent
+DISK_WARN=85
+DISK_FAIL=95
+MEM_WARN=90
+MEM_FAIL=95
+CPU_WARN=90
+# report uncommitted files and unpushed commits in the policy workdir older than this
+WORKDIR_AGE=3600
 
 need_value() {
     if [ $# -lt 2 ] || [ -z "$2" ]; then
@@ -177,6 +190,15 @@ human_duration() {
     else
         echo "${s}s"
     fi
+}
+
+# human_kib KIB -> size like 1.5G
+human_kib() {
+    awk -v k="$1" 'BEGIN {
+        n = split("K M G T P", u)
+        for (i = 1; k >= 1024 && i < n; i++) k /= 1024
+        printf(i == 1 ? "%d%s\n" : "%.1f%s\n", k, u[i])
+    }'
 }
 
 # ---------------------------------------------------------------------------
@@ -543,6 +565,243 @@ with create_engine(common_config.ALEMBIC_URI).connect() as conn:
         print(version)
 EOF
 
+# Disk and inode usage of paths: DF_SH LABEL PATH [LABEL PATH]...
+# Output: label<TAB>df -Pk row<TAB>df -Pi row
+IFS= read -r -d '' DF_SH <<'EOF'
+while [ $# -ge 2 ]; do
+    s=$(df -Pk "$2" 2>/dev/null | tail -n +2 | tail -n 1)
+    i=$(df -Pi "$2" 2>/dev/null | tail -n +2 | tail -n 1)
+    [ -z "$s" ] || printf '%s\t%s\t%s\n' "$1" "$s" "$i"
+    shift 2
+done
+EOF
+
+# Look for problems in the git working copies under the policy workdir:
+# uncommitted files, commits not pushed to gitd, stale lock files, unfinished
+# merges and directories the container user cannot write to.
+# Args: workdir, container name, max files to list, age in seconds after
+# which uncommitted work counts as left behind.
+# Output: PASS|WARN|FAIL|INFO|DETAIL<TAB>message
+IFS= read -r -d '' PY_WORKDIR <<'EOF'
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+root, container = sys.argv[1], sys.argv[2]
+max_files, dirty_age = int(sys.argv[3]), int(sys.argv[4])
+# a copy of the upstream CVE list that the api resets on every update; git
+# status takes long on its many files
+SKIP = {"cvelistv5"}
+# repos are at most at <kind>/user-<id>/<tenant>
+MAX_DEPTH = 4
+LOCK_AGE = 600
+GIT_TIMEOUT = 60
+STATES = (
+    ("MERGE_HEAD", "merge"),
+    ("rebase-merge", "rebase"),
+    ("rebase-apply", "rebase"),
+    ("CHERRY_PICK_HEAD", "cherry-pick"),
+    ("REVERT_HEAD", "revert"),
+)
+# the api may be committing: git status must not take index.lock
+ENV = dict(os.environ, GIT_OPTIONAL_LOCKS="0", LC_ALL="C")
+FIX_OWNER = "fix the ownership of the volume, e.g. with fix-volume-permissions.sh"
+now = time.time()
+uid = os.getuid()
+
+
+def emit(kind, msg):
+    print("%s\t%s" % (kind, msg.replace("\t", " ").replace("\n", " ")))
+
+
+def duration(s):
+    s = int(s)
+    if s >= 86400:
+        return "%dd %dh" % (s // 86400, s % 86400 // 3600)
+    if s >= 3600:
+        return "%dh %dm" % (s // 3600, s % 3600 // 60)
+    if s >= 60:
+        return "%dm %ds" % (s // 60, s % 60)
+    return "%ds" % s
+
+
+def age(path):
+    try:
+        return now - os.lstat(path).st_mtime
+    except OSError:
+        return None
+
+
+def git(repo, *args):
+    return subprocess.run(("git", "-C", repo) + args, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, env=ENV, timeout=GIT_TIMEOUT)
+
+
+def git_error(proc):
+    lines = proc.stderr.decode(errors="replace").strip().splitlines()
+    for line in lines:
+        if line.startswith(("fatal:", "error:")):
+            return line
+    return lines[-1] if lines else "exit code %d" % proc.returncode
+
+
+def find_repos():
+    for top, dirs, files in os.walk(root):
+        if ".git" in dirs or ".git" in files:
+            yield top
+            dirs[:] = []
+            continue
+        depth = 0 if top == root else os.path.relpath(top, root).count(os.sep) + 1
+        if depth >= MAX_DEPTH:
+            dirs[:] = []
+        else:
+            dirs[:] = sorted(d for d in dirs
+                             if not d.startswith(".") and not (depth == 0 and d in SKIP))
+
+
+def git_dir(repo):
+    path = os.path.join(repo, ".git")
+    if os.path.isfile(path):
+        with open(path) as f:
+            line = f.readline().strip()
+        if line.startswith("gitdir:"):
+            path = os.path.join(repo, line[7:].strip())
+    return path
+
+
+def parse_status(out):
+    """git status --porcelain=v2 -z -> (commits ahead, [(XY, path)], unmerged count)"""
+    ahead, files, unmerged = 0, [], 0
+    tokens = iter(out.split(b"\0"))
+    for raw in tokens:
+        entry = raw.decode(errors="replace")
+        kind = entry[:2]
+        if entry.startswith("# branch.ab "):
+            ahead = int(entry.split()[2])
+        elif kind in ("1 ", "2 "):
+            fields = entry.split(" ", 9 if kind == "2 " else 8)
+            files.append((fields[1].replace(".", " "), fields[-1]))
+            if kind == "2 ":
+                next(tokens, None)  # the original path of a rename
+        elif kind == "u ":
+            fields = entry.split(" ", 10)
+            files.append((fields[1], fields[-1]))
+            unmerged += 1
+        elif kind == "? ":
+            files.append(("??", entry[2:]))
+    return ahead, files, unmerged
+
+
+def check(repo):
+    """Report the problems of one repo; True if it has none."""
+    name = os.path.relpath(repo, root)
+    gdir = git_dir(repo)
+    ok = True
+
+    readonly, locks = None, []
+    for top, _, files in os.walk(gdir):
+        if readonly is None and not os.access(top, os.W_OK):
+            readonly = top
+        locks += [os.path.join(top, f) for f in files if f.endswith(".lock")]
+    if readonly:
+        emit("FAIL", "%s: %s is not writable for uid %d, so commits fail; %s"
+             % (name, os.path.relpath(readonly, repo), uid, FIX_OWNER))
+        ok = False
+    for lock in locks:
+        a = age(lock)
+        if a is None:
+            continue
+        ok = False
+        if a >= LOCK_AGE:
+            emit("FAIL", "%s: stale lock %s from %s ago; git refuses to work in this repo until "
+                 "it is removed (only remove it when no git command runs)"
+                 % (name, os.path.relpath(lock, repo), duration(a)))
+        else:
+            emit("INFO", "%s: %s from %s ago, a git command is running"
+                 % (name, os.path.relpath(lock, repo), duration(a)))
+    for marker, op in STATES:
+        a = age(os.path.join(gdir, marker))
+        if a is None:
+            continue
+        ok = False
+        if a >= LOCK_AGE:
+            emit("FAIL", "%s: unfinished %s from %s ago; commits fail until it is aborted with "
+                 "'git %s --abort'" % (name, op, duration(a), op))
+        else:
+            emit("INFO", "%s: a %s is in progress" % (name, op))
+        break
+
+    try:
+        proc = git(repo, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all")
+    except subprocess.TimeoutExpired:
+        emit("WARN", "%s: git status did not finish within %ds" % (name, GIT_TIMEOUT))
+        return False
+    if proc.returncode:
+        err = git_error(proc)
+        emit("FAIL", "%s: git status failed: %s" % (name, err))
+        if "dubious ownership" in err:
+            emit("DETAIL", "%s is owned by uid %d but the container runs as uid %d; %s"
+                 % (repo, os.stat(repo).st_uid, uid, FIX_OWNER))
+        return False
+    ahead, files, unmerged = parse_status(proc.stdout)
+
+    if files:
+        ok = False
+        # oldest first, deleted files (no age) last
+        dated = sorted(((age(os.path.join(repo, p)), xy, p) for xy, p in files),
+                       key=lambda f: -1 if f[0] is None else f[0], reverse=True)
+        oldest = dated[0][0]
+        untracked = sum(1 for _, xy, _ in dated if xy == "??")
+        counts = ", ".join("%d %s" % (n, what) for n, what in (
+            (len(files) - untracked - unmerged, "changed"),
+            (untracked, "untracked"),
+            (unmerged, "with conflicts"),
+        ) if n)
+        when = "" if oldest is None else ", the oldest changed %s ago" % duration(oldest)
+        emit("WARN" if oldest is None or oldest >= dirty_age else "INFO",
+             "%s: %d uncommitted file(s) (%s)%s" % (name, len(files), counts, when))
+        for a, xy, p in dated[:max_files]:
+            emit("DETAIL", "%s %8s  %s" % (xy, "-" if a is None else duration(a), p))
+        if len(dated) > max_files:
+            emit("DETAIL", "... and %d more; see 'docker exec %s git -C %s status'"
+                 % (len(dated) - max_files, container, repo))
+
+    if ahead > 0:
+        ok = False
+        try:
+            times = [int(t) for t in git(repo, "log", "--format=%ct", "@{upstream}..HEAD").stdout.split()]
+        except (subprocess.TimeoutExpired, ValueError):
+            times = []
+        oldest = now - min(times) if times else None
+        when = "" if oldest is None else ", the oldest from %s ago" % duration(oldest)
+        emit("WARN" if oldest is None or oldest >= dirty_age else "INFO",
+             "%s: %d commit(s) not pushed to gitd%s" % (name, ahead, when))
+    return ok
+
+
+if not os.path.isdir(root):
+    emit("WARN", "%s does not exist in the %s container" % (root, container))
+    sys.exit(0)
+if not shutil.which("git"):
+    emit("WARN", "no git in the %s container, cannot check %s" % (container, root))
+    sys.exit(0)
+clean, found = [], 0
+for repo in find_repos():
+    found += 1
+    try:
+        if check(repo):
+            clean.append(os.path.relpath(repo, root))
+    except Exception as exc:
+        emit("WARN", "%s: could not check: %s" % (os.path.relpath(repo, root), exc))
+if not found:
+    emit("INFO", "no git repos found in %s" % root)
+elif clean:
+    names = ", ".join(clean[:10]) + (" and %d more" % (len(clean) - 10) if len(clean) > 10 else "")
+    emit("PASS", "%d of %d repo(s) clean: %s" % (len(clean), found, names))
+EOF
+
 # Classify log lines as C (critical) or E (error); lines with an explicit
 # lower log level are skipped. Python tracebacks are reported by their final
 # exception line. Matches the [ERROR] and " ERROR/" markers the api uses in
@@ -689,6 +948,8 @@ preflight() {
     DOCKER_VERSION=$(docker version --format '{{.Server.Version}}' 2>&1) ||
         die "cannot talk to the Docker daemon: $DOCKER_VERSION
 Run this script as root or as a member of the docker group."
+    DOCKER_INFO=$(docker info --format '{{.OperatingSystem}}|{{.KernelVersion}}|{{.NCPU}}|{{.MemTotal}}|{{.Driver}}|{{.DockerRootDir}}' 2>/dev/null)
+    DOCKER_ROOT=$(printf '%s' "$DOCKER_INFO" | cut -d'|' -f6)
 }
 
 detect_project() {
@@ -709,9 +970,15 @@ detect_project() {
 }
 
 print_environment() {
-    local files ref ver c
+    local files ref ver c os kernel ncpu mem driver
     section "Environment"
     info "Host $(hostname), $(date '+%Y-%m-%d %H:%M:%S %Z'), Docker $DOCKER_VERSION"
+    if [ -n "$DOCKER_INFO" ]; then
+        IFS='|' read -r os kernel ncpu mem driver _ <<EOF
+$DOCKER_INFO
+EOF
+        info "Docker runs on $os, kernel $kernel, $ncpu CPU(s), $(human_kib $((mem / 1024))) memory, storage driver $driver"
+    fi
     info "Compose project $PROJECT with $(printf '%s\n' "$CTR" | grep -c .) containers"
     if [ -n "$API_ANY" ]; then
         files=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$API_ANY" 2>/dev/null)
@@ -722,6 +989,199 @@ print_environment() {
             ver=$(docker exec "$c" python3 -c 'import importlib.metadata as m; print(m.version("netyce-api"))' </dev/null 2>/dev/null)
         fi
         info "api image $ref${ver:+ (netyce-api $ver)}"
+    fi
+}
+
+meminfo() {
+    awk -v k="$1:" '$1 == k { print $2; exit }' /proc/meminfo
+}
+
+# percent_ge VALUE LIMIT: VALUE >= LIMIT, for decimal numbers
+percent_ge() {
+    awk -v v="$1" -v l="$2" 'BEGIN { exit !(v + 0 >= l + 0) }'
+}
+
+check_host() {
+    local up ncpu load1 load5 load15 busy iowait steal msg total avail pct swap_total swap_free oom
+    section "Host resources"
+    if [ ! -r /proc/stat ] || [ ! -r /proc/meminfo ]; then
+        info "not a Linux host, skipped the CPU and memory checks${DOCKER_INFO:+ (see the Docker line above)}"
+        command -v uptime >/dev/null 2>&1 && info "uptime: $(uptime | sed 's/^ *//')"
+        return
+    fi
+    if [ -n "${DOCKER_HOST:-}" ]; then
+        warn "DOCKER_HOST is set: these checks are about $(hostname), which may not be the Docker host"
+    fi
+
+    ncpu=$(getconf _NPROCESSORS_ONLN 2>/dev/null || grep -c '^processor' /proc/cpuinfo)
+    up=$(cut -d. -f1 /proc/uptime)
+    read -r load1 load5 load15 _ </proc/loadavg
+    info "up $(human_duration "$up"), load average $load1, $load5, $load15 (1, 5, 15 min) on $ncpu CPU(s)"
+    if [ "$up" -lt 3600 ]; then
+        warn "the host booted $(human_duration "$up") ago; if that was not planned, see the end of the previous boot's log ('journalctl -b -1 -e')"
+    fi
+    if ! percent_ge "$ncpu" "$load5"; then
+        warn "load average over 5 minutes is $load5 on $ncpu CPU(s); processes are waiting for CPU or disk"
+    fi
+
+    # busy, iowait and steal percentages of all CPUs over one second
+    read -r busy iowait steal <<EOF
+$({ head -n 1 /proc/stat; sleep 1; head -n 1 /proc/stat; } | awk '
+    { t = $2 + $3 + $4 + $5 + $6 + $7 + $8 + $9 }
+    NR == 1 { t0 = t; i0 = $5; w0 = $6; s0 = $9; next }
+    t > t0 { d = t - t0; printf "%d %d %d\n", 100 * (d - ($5 - i0) - ($6 - w0)) / d, 100 * ($6 - w0) / d, 100 * ($9 - s0) / d }')
+EOF
+    if [ -n "$busy" ]; then
+        msg="CPU ${busy}% busy, ${iowait}% waiting for disk I/O, ${steal}% stolen by the hypervisor (1s sample)"
+        if [ "$busy" -ge "$CPU_WARN" ]; then
+            warn "$msg; the host has no CPU to spare"
+        elif [ "$iowait" -ge 20 ]; then
+            warn "$msg; the disk is too slow for the load"
+        elif [ "$steal" -ge 10 ]; then
+            warn "$msg; the VM gets less CPU than it was given (a burstable instance out of CPU credits?)"
+        else
+            pass "$msg"
+        fi
+    fi
+
+    total=$(meminfo MemTotal)
+    avail=$(meminfo MemAvailable)
+    [ -n "$avail" ] || avail=$(($(meminfo MemFree) + $(meminfo Buffers) + $(meminfo Cached)))
+    pct=$(((total - avail) * 100 / total))
+    msg="memory: $(human_kib $((total - avail))) of $(human_kib "$total") used (${pct}%), $(human_kib "$avail") available"
+    if [ "$pct" -ge "$MEM_FAIL" ]; then
+        fail "$msg; the kernel kills processes when it runs out"
+    elif [ "$pct" -ge "$MEM_WARN" ]; then
+        warn "$msg; the host is low on memory"
+    else
+        pass "$msg"
+    fi
+    swap_total=$(meminfo SwapTotal)
+    swap_free=$(meminfo SwapFree)
+    if [ "${swap_total:-0}" -gt 0 ]; then
+        pct=$(((swap_total - swap_free) * 100 / swap_total))
+        msg="swap: $(human_kib $((swap_total - swap_free))) of $(human_kib "$swap_total") used (${pct}%)"
+        if [ "$pct" -ge 50 ]; then warn "$msg; the host is short of memory, which makes it slow"; else pass "$msg"; fi
+    fi
+    oom=$(awk '$1 == "oom_kill" { print $2; exit }' /proc/vmstat 2>/dev/null)
+    if [ "${oom:-0}" -gt 0 ]; then
+        warn "the kernel OOM killer killed $oom process(es) since the host booted; see 'dmesg -T | grep -i \"killed process\"'"
+    fi
+}
+
+# disk_rows: "label<TAB>df -Pk row<TAB>df -Pi row" for the host's root, the
+# Docker root, the compose directory and every volume of the running
+# containers; the volumes that cannot be checked go to $WORK/df-skipped
+disk_rows() {
+    local wd running mounts c cn vol dest svc out seen=" "
+    wd=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$API_ANY" 2>/dev/null)
+    set -- "host /" /
+    [ -z "$DOCKER_ROOT" ] || [ ! -d "$DOCKER_ROOT" ] || set -- "$@" "docker root" "$DOCKER_ROOT"
+    [ -z "$wd" ] || [ ! -d "$wd" ] || set -- "$@" "compose dir" "$wd"
+    sh -c "$DF_SH" df "$@"
+
+    # a volume is on the Docker host, which is not necessarily this machine
+    running=$(printf '%s\n' "$CTR" | awk -F'|' '$3 == "running" { print $2 }')
+    [ -n "$running" ] || return 0
+    # shellcheck disable=SC2086
+    mounts=$(docker inspect -f '{{$n := .Name}}{{range .Mounts}}{{if eq .Type "volume"}}{{$n}}|{{.Name}}|{{.Destination}}{{"\n"}}{{end}}{{end}}' $running |
+        sed 's#^/##')
+    for c in $running; do
+        svc=$(ctr_field "$c" 1)
+        set --
+        while IFS='|' read -r cn vol dest; do
+            [ "$cn" = "$c" ] || continue
+            case "$seen" in
+                *" $vol "*) continue ;;
+            esac
+            seen="$seen$vol "
+            set -- "$@" "${svc:-$c}:$dest" "$dest"
+        done <<EOF
+$mounts
+EOF
+        [ $# -gt 0 ] || continue
+        out=$(docker exec "$c" sh -c "$DF_SH" df "$@" </dev/null 2>/dev/null)
+        if [ -n "$out" ]; then
+            printf '%s\n' "$out"
+        else
+            echo "${svc:-$c}" >>"$WORK/df-skipped"
+        fi
+    done
+}
+
+check_disk() {
+    local rows labels fs size avail pct ipct msg low=0 unrotated= nunrotated=0 big= name type maxsize path bytes
+    section "Disk space"
+    # one line per filesystem: labels, filesystem, size, available, use%, inode use%
+    rows=$(disk_rows | awk -F'\t' '
+        {
+            if (split($2, s, " ") < 5) next
+            key = s[1] " " s[2]
+            if (key in label) { label[key] = label[key] ", " $1; next }
+            order[++n] = key
+            label[key] = $1
+            # the last percentage: macOS "df -Pi" also has the block capacity
+            ip = "-"
+            ni = split($3, i, " ")
+            for (f = 1; f <= ni; f++) if (i[f] ~ /%$/) ip = i[f]
+            row[key] = s[1] FS s[2] FS s[4] FS s[5] FS ip
+        }
+        END { for (k = 1; k <= n; k++) print label[order[k]] FS row[order[k]] }')
+    while IFS="$TAB" read -r labels fs size avail pct ipct; do
+        [ -n "$fs" ] || continue
+        pct=${pct%\%}
+        ipct=${ipct%\%}
+        msg="$fs ($labels): ${pct}% used, $(human_kib "$avail") of $(human_kib "$size") free"
+        # btrfs and some network filesystems have no inode counts
+        case "$ipct" in
+            '' | *[!0-9]*) ipct=0 ;;
+            *) msg="$msg, ${ipct}% of the inodes used" ;;
+        esac
+        if [ "$ipct" -ge "$DISK_FAIL" ]; then
+            fail "$msg; it is out of inodes, so no new files can be created"
+            low=1
+        elif [ "$pct" -ge "$DISK_FAIL" ]; then
+            fail "$msg; the database, redis and git stop working when it is full"
+            low=1
+        elif [ "$pct" -ge "$DISK_WARN" ] || [ "$ipct" -ge "$DISK_WARN" ]; then
+            warn "$msg; it is filling up"
+            low=1
+        else
+            pass "$msg"
+        fi
+    done <<EOF
+$rows
+EOF
+    if [ $low -eq 1 ]; then
+        detail "Docker disk usage ('docker system df'):"
+        docker system df --format '{{.Type}}: {{.Size}}, {{.Reclaimable}} reclaimable' 2>&1 | details
+        detail "'docker image prune' removes the images of earlier versions that no container uses."
+    fi
+
+    # json-file logs grow until the disk is full unless max-size is set
+    while IFS='|' read -r name type maxsize path; do
+        [ -n "$name" ] || continue
+        if [ "$type" = json-file ] && { [ -z "$maxsize" ] || [ "$maxsize" = "<no value>" ]; }; then
+            unrotated="$unrotated $name"
+            nunrotated=$((nunrotated + 1))
+        fi
+        # the log files are only readable as root
+        if [ -n "$path" ] && [ -r "$path" ]; then
+            bytes=$(wc -c <"$path" 2>/dev/null)
+            if [ "${bytes:-0}" -ge 1073741824 ]; then
+                big="$big, $name $(human_kib $((bytes / 1024)))"
+            fi
+        fi
+    done <<EOF
+$(printf '%s\n' "$CTR" | cut -d'|' -f2 | xargs docker inspect -f '{{.Name}}|{{.HostConfig.LogConfig.Type}}|{{index .HostConfig.LogConfig.Config "max-size"}}|{{.LogPath}}' 2>/dev/null | sed 's#^/##')
+EOF
+    if [ $nunrotated -gt 0 ]; then
+        warn "the logs of $nunrotated container(s) are not rotated (json-file log driver without max-size) and grow until the disk is full:$unrotated"
+        detail "Set \"log-opts\": {\"max-size\": \"50m\", \"max-file\": \"3\"} in /etc/docker/daemon.json, restart Docker and recreate the containers."
+    fi
+    [ -z "$big" ] || warn "large container logs: ${big#, }"
+    if [ -s "$WORK/df-skipped" ]; then
+        info "could not check the volumes of (no sh or df in the container): $(sort -u "$WORK/df-skipped" | paste -sd, - | sed 's/,/, /g')"
     fi
 }
 
@@ -785,6 +1245,115 @@ check_containers() {
         esac
         check_service "$svc" warn
     done
+}
+
+# the three containers using the most of a resource, from "name|amount|display" lines on stdin
+top3() {
+    sort -t'|' -k2,2gr | awk -F'|' -v p="$PROJECT" '
+        $2 > 0 && n++ < 3 {
+            name = $1
+            sub("^" p "[-_]", "", name)
+            sub(/[-_]1$/, "", name)
+            printf "%s%s %s", (n > 1 ? ", " : ""), name, $3
+        }
+        END { print "" }'
+}
+
+check_resources() {
+    local running stats limits name cpu usage memperc pids mem nano quota period pidslim svc label cpus lim cg oom
+    local periods throttled limited= nunlimited=0 n=0 before
+    section "Container resources"
+    running=$(printf '%s\n' "$CTR" | awk -F'|' '$3 == "running" { print $2 }')
+    if [ -z "$running" ]; then
+        info "no container is running"
+        return
+    fi
+    # shellcheck disable=SC2086
+    if ! stats=$(docker stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.PIDs}}' $running 2>&1); then
+        warn "docker stats failed: $(printf '%s\n' "$stats" | tail -n 1)"
+        return
+    fi
+    # shellcheck disable=SC2086
+    limits=$(docker inspect -f '{{.Name}}|{{.HostConfig.Memory}}|{{.HostConfig.NanoCpus}}|{{.HostConfig.CpuQuota}}|{{.HostConfig.CpuPeriod}}|{{.HostConfig.PidsLimit}}' $running |
+        sed 's#^/##')
+
+    info "most memory: $(printf '%s\n' "$stats" | awk -F'|' '
+        function bytes(s,   n) {
+            n = s + 0
+            if (s ~ /[kK]i?B/) n *= 1024; else if (s ~ /Mi?B/) n *= 1048576
+            else if (s ~ /Gi?B/) n *= 1073741824; else if (s ~ /Ti?B/) n *= 1099511627776
+            return n
+        }
+        { split($3, m, " / "); print $1 "|" bytes(m[1]) "|" m[1] }' | top3)"
+    info "most CPU (100% is one CPU): $(printf '%s\n' "$stats" | awk -F'|' '{ print $1 "|" $2 + 0 "|" $2 }' | top3)"
+
+    before=$((N_WARN + N_FAIL))
+    while IFS='|' read -r name cpu usage memperc pids; do
+        [ -n "$name" ] || continue
+        n=$((n + 1))
+        IFS='|' read -r _ mem nano quota period pidslim <<EOF
+$(printf '%s\n' "$limits" | awk -F'|' -v n="$name" '$1 == n { print; exit }')
+EOF
+        svc=$(ctr_field "$name" 1)
+        label=$(pad "${svc:-$name}")
+        [ "$name" = "$svc" ] || label="$label $name:"
+        cpus=$(awk -v n="${nano:-0}" -v q="${quota:-0}" -v p="${period:-0}" \
+            'BEGIN { if (n > 0) c = n / 1e9; else if (q > 0) c = q / (p > 0 ? p : 100000); if (c > 0) printf "%g\n", c }')
+        case "$pidslim" in '' | *[!0-9]*) pidslim=0 ;; esac
+
+        lim=
+        [ "${mem:-0}" -le 0 ] || lim="memory $(human_kib $((mem / 1024)))"
+        [ -z "$cpus" ] || lim="${lim:+$lim, }$cpus CPU"
+        [ "$pidslim" -le 0 ] || lim="${lim:+$lim, }$pidslim processes"
+        if [ -n "$lim" ]; then
+            limited="${limited:+$limited; }${svc:-$name} $lim"
+        else
+            nunlimited=$((nunlimited + 1))
+        fi
+
+        if [ "${mem:-0}" -gt 0 ] && percent_ge "${memperc%\%}" "$MEM_WARN"; then
+            warn "$label uses $usage memory (${memperc}), close to its limit; processes in it are OOM-killed at the limit"
+        fi
+        if [ -n "$cpus" ] && percent_ge "${cpu%\%}" "$(awk -v c="$cpus" -v w="$CPU_WARN" 'BEGIN { print c * w }')"; then
+            warn "$label uses $cpu CPU, at its limit of $cpus CPU(s), so it runs slowly"
+        fi
+        if [ "$pidslim" -gt 0 ] && [ "${pids:-0}" -ge $((pidslim * 9 / 10)) ] 2>/dev/null; then
+            warn "$label runs $pids processes, close to its limit of $pidslim"
+        fi
+
+        # the container's own cgroup: memory.events/memory.oom_control count
+        # OOM kills of any process in it, cpu.stat the CPU throttling
+        cg=$(docker exec "$name" cat /sys/fs/cgroup/memory.events /sys/fs/cgroup/cpu.stat \
+            /sys/fs/cgroup/memory/memory.oom_control /sys/fs/cgroup/cpu/cpu.stat </dev/null 2>/dev/null)
+        oom=$(printf '%s\n' "$cg" | awk '$1 == "oom_kill" { print $2; exit }')
+        if [ "${oom:-0}" -gt 0 ] 2>/dev/null; then
+            if [ "${mem:-0}" -gt 0 ]; then
+                fail "$label the OOM killer killed $oom process(es) in this container since it started; raise its memory limit"
+            else
+                fail "$label the OOM killer killed $oom process(es) in this container since it started; give the host more memory"
+            fi
+        fi
+        if [ -n "$cpus" ]; then
+            read -r periods throttled <<EOF
+$(printf '%s\n' "$cg" | awk '$1 == "nr_periods" { p = $2 } $1 == "nr_throttled" { t = $2 } END { print p + 0, t + 0 }')
+EOF
+            if [ "$periods" -gt 0 ] && [ $((throttled * 100 / periods)) -ge 20 ]; then
+                warn "$label was CPU-throttled in $((throttled * 100 / periods))% of its time slices since it started; its limit of $cpus CPU(s) is too low"
+            fi
+        fi
+    done <<EOF
+$stats
+EOF
+
+    if [ -n "$limited" ]; then
+        [ $nunlimited -eq 0 ] || limited="$limited; no limits on the other $nunlimited container(s)"
+        info "limits: $limited"
+    else
+        info "no container has a memory, CPU or process limit"
+    fi
+    if [ $((N_WARN + N_FAIL)) -eq "$before" ]; then
+        pass "$n running container(s) within their limits, no OOM kills"
+    fi
 }
 
 check_migrations() {
@@ -1216,6 +1785,37 @@ check_redis() {
     report_queues
 }
 
+check_workdir() {
+    local root c max out rc kind msg
+    root=$(env_get "$ENV_API" WORKDIR_VOLUME_PATH)
+    root=${root:-/data/policy-workdir}
+    section "Git repos in the policy workdir ($root)"
+    # api, celery and committer share the policy-data volume
+    if ! c=$(first_running api celery committer); then
+        warn "no api, celery or committer container runs to check $root in"
+        return
+    fi
+    max=5
+    [ $VERBOSE -eq 0 ] || max=25
+    out=$(printf '%s' "$PY_WORKDIR" | docker exec -i "$c" python3 - "$root" "$c" "$max" "$WORKDIR_AGE" 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        warn "could not check the git repos in $root: $(printf '%s\n' "$out" | tail -n 1)"
+        return
+    fi
+    while IFS="$TAB" read -r kind msg; do
+        case "$kind" in
+            PASS) pass "$msg" ;;
+            WARN) warn "$msg" ;;
+            FAIL) fail "$msg" ;;
+            INFO) info "$msg" ;;
+            DETAIL) detail "$msg" ;;
+        esac
+    done <<EOF
+$out
+EOF
+}
+
 check_logs() {
     local svc name out classified n_crit n_err label groups ngroups max clean=
     section "Container logs (errors since $SINCE)"
@@ -1289,6 +1889,7 @@ collect_bundle() {
         echo; echo "# uname -a"; uname -a
         echo; echo "# uptime"; uptime
         echo; echo "# df -h"; df -h
+        echo; echo "# df -i"; df -i
         echo; echo "# free -m"; free -m
         echo; echo "# docker version"; docker version
         echo; echo "# docker info"; docker info
@@ -1389,10 +1990,14 @@ main() {
     setup_bundle
     resolve_targets
     print_environment
+    check_host
+    check_disk
     check_containers
+    check_resources
     check_migrations
     check_connectivity
     check_redis
+    check_workdir
     check_logs
     print_summary
     collect_bundle

@@ -1277,6 +1277,8 @@ ENV = dict(os.environ, GIT_OPTIONAL_LOCKS="0", LC_ALL="C")
 FIX_OWNER = "fix the ownership of the volume, e.g. with fix-volume-permissions.sh"
 now = time.time()
 uid = os.getuid()
+# repos inside the repos that were checked, to check next
+nested_repos = []
 
 
 class GitError(Exception):
@@ -1384,14 +1386,34 @@ def parse_status(out):
 
 
 def git_status(repo):
-    """-> (commits ahead, [(age, XY, path)] oldest first and deleted files last, unmerged count)"""
+    """-> (commits ahead, [(age, XY, path)] oldest first and deleted files last, unmerged count,
+    [git repos in untracked directories])"""
     proc = git(repo, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all")
     if proc.returncode:
         raise GitError(git_error(proc))
     ahead, files, unmerged = parse_status(proc.stdout)
-    dated = sorted(((age(os.path.join(repo, p)), xy, p) for xy, p in files),
+    # git lists a repo in an untracked directory as the directory, without its files;
+    # git clean leaves it alone
+    nested = [p for xy, p in files if xy == "??" and p.endswith("/")
+              and os.path.exists(os.path.join(repo, p, ".git"))]
+    dated = sorted(((age(os.path.join(repo, p)), xy, p) for xy, p in files if p not in nested),
                    key=lambda f: -1 if f[0] is None else f[0], reverse=True)
-    return ahead, dated, unmerged
+    return ahead, dated, unmerged, [os.path.join(repo, p.rstrip("/")) for p in nested]
+
+
+def remote_url(repo):
+    proc = git(repo, "remote", "get-url", "origin")
+    return proc.stdout.decode(errors="replace").strip() if proc.returncode == 0 else None
+
+
+def describe_nested(repo, sub):
+    url = remote_url(sub)
+    if url and url == remote_url(repo):
+        what = "a second clone of %s" % url
+    else:
+        what = "another git repo" + (", a clone of %s" % url if url else "")
+    return "%s/ is %s inside this repo; it is checked as a repo of its own" % (
+        os.path.relpath(sub, repo), what)
 
 
 def left_behind(dated):
@@ -1469,7 +1491,7 @@ def check(repo):
             emit("INFO", "%s: a %s is in progress" % (name, op))
 
     try:
-        ahead, dated, unmerged = git_status(repo)
+        ahead, dated, unmerged, nested = git_status(repo)
     except subprocess.TimeoutExpired:
         emit("WARN", "%s: git status did not finish within %ds" % (name, GIT_TIMEOUT))
         return False
@@ -1479,6 +1501,10 @@ def check(repo):
             emit("DETAIL", "%s is owned by uid %d but the container runs as uid %d; %s"
                  % (repo, os.stat(repo).st_uid, uid, FIX_OWNER))
         return False
+
+    for sub in nested:
+        emit("INFO", "%s: %s" % (name, describe_nested(repo, sub)))
+    nested_repos.extend(nested)
 
     if dated:
         ok = False
@@ -1511,13 +1537,14 @@ def list_reset(repo):
     name = os.path.relpath(repo, root)
     readonly, locks, state = scan_git_dir(git_dir(repo))
     try:
-        _, dated, unmerged = git_status(repo)
+        _, dated, unmerged, nested = git_status(repo)
     except subprocess.TimeoutExpired:
         emit("WARN", "%s: skipped, git status did not finish within %ds" % (name, GIT_TIMEOUT))
         return False
     except GitError as exc:
         emit("WARN", "%s: skipped, git status failed: %s" % (name, exc))
         return False
+    nested_repos.extend(nested)
     if locks and all(a >= LOCK_AGE for _, a in locks):
         # git refuses to work in the repo, so no backup or policy run can commit its files
         msg = "%s: %s" % (name, describe_locks(repo, locks))
@@ -1565,13 +1592,13 @@ def reset(repo, unlock):
             except FileNotFoundError:
                 pass
         emit("INFO", "%s: removed the %s" % (name, describe_locks(repo, locks)))
-    _, before, _ = git_status(repo)
+    _, before, _, _ = git_status(repo)
     for args in (("reset", "--hard", "--quiet"), ("clean", "-d", "--force", "--quiet")):
         proc = git(repo, *args)
         if proc.returncode:
             emit("FAIL", "%s: git %s failed: %s" % (name, args[0], git_error(proc)))
             return
-    _, after, _ = git_status(repo)
+    _, after, _, _ = git_status(repo)
     head = git(repo, "rev-parse", "--short", "HEAD").stdout.decode(errors="replace").strip()
     if after:
         emit("WARN", "%s: reset to %s, but %d uncommitted file(s) are left" % (name, head, len(after)))
@@ -1580,6 +1607,14 @@ def reset(repo, unlock):
         emit("PASS", "%s: reset to %s, discarded %d uncommitted file(s)" % (name, head, len(before)))
     else:
         emit("PASS", "%s: reset to %s, no uncommitted files" % (name, head))
+
+
+def all_repos():
+    """The repos of find_repos, each followed by the repos that its check found inside it"""
+    for repo in find_repos():
+        yield repo
+        while nested_repos:
+            yield nested_repos.pop(0)
 
 
 if not os.path.isdir(root):
@@ -1596,7 +1631,7 @@ if mode in ("reset", "unlock"):
             emit("FAIL", "%s: could not reset: %s" % (name, exc))
     sys.exit(0)
 clean, found = [], 0
-for repo in find_repos():
+for repo in all_repos():
     found += 1
     try:
         if (list_reset if mode == "list" else check)(repo):

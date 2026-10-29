@@ -7,10 +7,11 @@
 # healthy and within their resource limits, what the local changes to the repo
 # do to the stack and whether the containers match the compose files, that the
 # database is at the alembic revision the api image expects, that the
-# containers can reach each other, that the celery task queues in redis are
-# not stuck, that the git working copies in the policy workdir have no old
-# uncommitted files or stale locks, how the last backup and policy run of the
-# devices went and that the container logs are free of errors.
+# containers can reach each other, that the agents in the database are
+# connected and set up for the compose stack they run in, that the celery task
+# queues in redis are not stuck, that the git working copies in the policy
+# workdir have no old uncommitted files or stale locks, how the last backup and
+# policy run of the devices went and that the container logs are free of errors.
 #
 # Run it on the Docker host as a user that can access the Docker daemon. It
 # only reads state; when the api container is down it starts a throw-away
@@ -28,9 +29,11 @@ Checks a running Netpicker Docker stack: host uptime, CPU, memory and disk
 space, the Netpicker version against the release tags of this repo,
 containers with their health checks and resource limits, local changes to
 this repo and whether the containers match the compose files, the database
-migration (alembic) revision, connectivity between containers, the redis task
-queues, uncommitted files in the git repos of the policy workdir, the last
-backup and policy run of every device and errors in the container logs.
+migration (alembic) revision, connectivity between containers, the agents
+(connected, in this compose stack or elsewhere, sharing the redis and
+kibbitzer of the stack), the redis task queues, uncommitted files in the git
+repos of the policy workdir, the last backup and policy run of every device
+and errors in the container logs.
 
 With --clear-queues it deletes the waiting and in-flight tasks from the redis
 task queues instead, after it asked for confirmation. Use it when backups and
@@ -79,6 +82,15 @@ REQUIRED_SERVICES="db redis minio gitd gitdctrl api celery committer agent kibbi
 OPTIONAL_SERVICES="swagger cadvisor syslog-ng"
 # one-shot services, checked by their own section
 ONESHOT_SERVICES="db_migration"
+
+# images of agents, also in other registries, e.g. netpicker/agent:2.8.1
+AGENT_IMAGE_RE='(^|/)agent([:@]|$)'
+# the AGENT_ID of an agent that does not set it: the id of the agent G7 that
+# the api creates
+DEFAULT_AGENT_ID=DrkSpy
+# agents send a heartbeat every 10 seconds; count an agent as connected when
+# its last heartbeat is this recent and redis cannot tell
+AGENT_BEAT_AGE=60
 
 INSPECT_TIMEOUT=2
 BUNDLE_LOG_TAIL=20000
@@ -441,13 +453,6 @@ resolve_targets() {
     p=$(env_get "$ENV_AGENT" CLI_PROXY_PORT)
     CLI_HP="${v:-agent}:${p:-9876}"
 
-    v=$(env_get "$ENV_AGENT" SHENV_API_URL)
-    AGENT_API_HP=$(url_hostport "${v:-http://api:8000}")
-    v=$(env_get "$ENV_AGENT" NETPICKER_GIT_URL)
-    AGENT_GIT_HP=$(url_hostport "${v:-http://frontend/git}")
-    v=$(env_get "$ENV_AGENT" REDIS_URL)
-    AGENT_REDIS_HP=$(url_hostport "${v:-redis://redis}" 6379)
-
     v=$(env_get "$ENV_KIB" SHENV_API_URL)
     KIB_API_HP=$(url_hostport "${v:-http://api:8000}")
     v=$(env_get "$ENV_KIB" SHENV_TAC_HOST)
@@ -455,6 +460,33 @@ resolve_targets() {
     KIB_TAC_HP="${v:-agent}:${p:-8765}"
     v=$(env_get "$ENV_KIB" SHENV_REDIS_URL)
     KIB_REDIS_HP=$(url_hostport "${v:-redis://redis}" 6379)
+}
+
+# agent_conf ENV KEY: a setting of the agent from its environment ENV, or the
+# default of the agent
+agent_conf() {
+    local v
+    v=$(env_get "$1" "$2")
+    if [ -z "$v" ]; then
+        case "$2" in
+            AGENT_ID) v=$DEFAULT_AGENT_ID ;;
+            AGENT_HOST) v=agent ;;
+            REDIS_URL) v=redis://redis/4 ;;
+            BACKUP_SVC_ADDR) v=kibbitzer ;;
+            BACKUP_SVC_PORT) v=9696 ;;
+        esac
+    fi
+    printf '%s\n' "$v"
+}
+
+# redis_target URL -> host:port/database
+redis_target() {
+    printf '%s/%s\n' "$(url_hostport "$1" 6379)" "$(url_db "$1")"
+}
+
+# the agent services of the stack other than agent, from the containers
+extra_agents() {
+    printf '%s\n' "$CTR" | awk -F'|' -v re="$AGENT_IMAGE_RE" '$1 != "agent" && $9 ~ re { print $1 }' | sort -u
 }
 
 ctr_label() {
@@ -689,22 +721,34 @@ return out
 EOF
 
 # Agents connected to the api websocket: every api process keeps a set
-# AgentBroker.<host>.<pid> of its connected agents.
-# Output: servers<TAB>agents
-IFS= read -r -d '' LUA_AGENTS <<'EOF'
-local servers, agents, cursor = 0, 0, "0"
-repeat
-  local r = redis.call("SCAN", cursor, "MATCH", "AgentBroker.*", "COUNT", 1000)
-  cursor = r[1]
-  for _, key in ipairs(r[2]) do
-    local n = redis.pcall("SCARD", key)
-    if type(n) == "number" then
-      servers = servers + 1
-      agents = agents + n
-    end
-  end
-until cursor == "0"
-return servers .. "\t" .. agents
+# AgentBroker.<host>.<pid> of its connected agents, as pickled ConnectedAgent
+# tuples. Args: redis host:port, database.
+# Output: C<TAB>agent id (its AGENT_ID)<TAB>tenant<TAB>host (its AGENT_HOST)<TAB>api host.pid
+#         or E<TAB>error
+IFS= read -r -d '' PY_AGENTS <<'EOF'
+import os
+import pickle
+import sys
+import warnings
+
+warnings.simplefilter("ignore")
+try:
+    import redis
+
+    from app.utils import shortid
+
+    host, port = sys.argv[1].rsplit(":", 1)
+    rdb = redis.Redis(host=host, port=int(port), db=int(sys.argv[2]),
+                      password=os.environ.get("NP_REDIS_PASSWORD") or None,
+                      socket_timeout=5)
+    for key in rdb.scan_iter("AgentBroker.*", count=1000):
+        server = key.decode().split(".", 1)[1]
+        for member in rdb.smembers(key):
+            agent = pickle.loads(member)
+            print("C\t%s\t%s\t%s\t%s" % (shortid.encode(int(agent.id)), agent.tenant,
+                                         agent.host or "", server))
+except Exception as exc:
+    print("E\t%s" % exc)
 EOF
 
 # Ask the celery workers on one broker database what they are doing.
@@ -854,6 +898,77 @@ END {
         }
     printf "%-11s %-10s %7s  %-30s %s\n", "", "status", "devices", "oldest (UTC)", "newest (UTC)"
     for (i = 1; i <= nr; i++) { sub(/ +$/, "", line[i]); print line[i] }
+}
+EOF
+
+# The agents in the database with the id the agent containers use as their
+# AGENT_ID: the shortid of the database id (app/utils/shortid.py of the api),
+# base 42 with the lowest digit first after adding 42^5. Connected agents send
+# a heartbeat every 10 seconds, which sets last_connected (UTC). The api
+# splits the backups of devices without an agent over the connected agents of
+# their tenant.
+# Output: A agent-id tenant name heartbeat-age (empty: never) devices
+#         U tenant devices-without-agent (not excluded from backups)
+IFS= read -r -d '' SQL_AGENTS <<'EOF'
+WITH RECURSIVE sid(id, n, s) AS (
+    SELECT id, id::numeric + 130691232, ''::text FROM agent
+    UNION ALL
+    SELECT id, div(n, 42), s || substr('bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ', mod(n, 42)::int + 1, 1)
+    FROM sid WHERE n > 0
+)
+SELECT 'A', sid.s, coalesce(t.name, '-'), a.name,
+       greatest(extract(epoch FROM (now() AT TIME ZONE 'utc') - a.last_connected), 0)::bigint::text,
+       (SELECT count(*) FROM device d WHERE d.agent_id = a.id)::text
+FROM agent a
+JOIN sid ON sid.id = a.id AND sid.n = 0
+LEFT JOIN tenant t ON t.id = a.tenant_id
+UNION ALL
+SELECT 'U', coalesce(t.name, '-'), count(*)::text, NULL, NULL, NULL
+FROM device d LEFT JOIN tenant t ON t.id = d.tenant_id
+WHERE d.agent_id IS NULL AND NOT d.exclude
+GROUP BY t.name
+EOF
+
+# The services of the stack from flattened compose config lines (see
+# AWK_FLAT): S<TAB>service<TAB>kind (agent, kibbitzer or -)<TAB>container_name
+# and E<TAB>service<TAB>KEY=value for every environment variable. -v re= the
+# regex of agent images.
+IFS= read -r -d '' AWK_STACK <<'EOF'
+BEGIN { FS = OFS = "\t" }
+!($1 in seen) { seen[$1] = 1; order[++n] = $1 }
+$2 == "image" { img[$1] = $3 }
+$2 == "labels.service.netpicker.io" { lbl[$1] = $3 }
+$2 == "container_name" { cn[$1] = $3 }
+$2 ~ /^environment\./ { env[$1, ++ne[$1]] = substr($2, 13) "=" $3 }
+END {
+    for (i = 1; i <= n; i++) {
+        s = order[i]
+        if (lbl[s] == "agent" || img[s] ~ re) k = "agent"
+        else if (lbl[s] == "kibbitzer" || img[s] ~ /(^|\/)kibbitzer([:@]|$)/) k = "kibbitzer"
+        else k = "-"
+        print "S", s, k, cn[s]
+        for (j = 1; j <= ne[s]; j++) print "E", s, env[s, j]
+    }
+}
+EOF
+
+# Align tab-separated columns.
+IFS= read -r -d '' AWK_COLUMNS <<'EOF'
+BEGIN { FS = "\t" }
+{
+    for (i = 1; i <= NF; i++) {
+        cell[NR, i] = $i
+        if (length($i) > w[i]) w[i] = length($i)
+    }
+    if (NF > nf) nf = NF
+}
+END {
+    for (r = 1; r <= NR; r++) {
+        line = ""
+        for (i = 1; i <= nf; i++) line = line sprintf("%-" w[i] "s  ", cell[r, i])
+        sub(/ +$/, "", line)
+        print line
+    }
 }
 EOF
 
@@ -2409,6 +2524,19 @@ EOF
     fi
 }
 
+# agent_matrix SERVICE ENV: source|mode|host:port|description of an agent
+# service with environment ENV
+agent_matrix() {
+    local v
+    v=$(env_get "$2" SHENV_API_URL)
+    echo "$1|tcp|$(url_hostport "${v:-http://api:8000}")|api"
+    v=$(env_get "$2" REDIS_URL)
+    echo "$1|tcp|$(url_hostport "${v:-redis://redis}" 6379)|redis"
+    v=$(env_get "$2" NETPICKER_GIT_URL)
+    echo "$1|tcp|$(url_hostport "${v:-http://frontend/git}")|frontend git"
+    echo "$1|tcp|$(agent_conf "$2" BACKUP_SVC_ADDR):$(agent_conf "$2" BACKUP_SVC_PORT)|kibbitzer"
+}
+
 # source|mode|host:port|description
 connectivity_matrix() {
     local svc
@@ -2422,9 +2550,10 @@ connectivity_matrix() {
     echo "api|tcp|$CLI_HP|agent CLI proxy"
     echo "celery|tcp|$CLI_HP|agent CLI proxy"
     echo "celery|tcp|$API_HP|api"
-    echo "agent|tcp|$AGENT_API_HP|api"
-    echo "agent|tcp|$AGENT_REDIS_HP|redis"
-    echo "agent|tcp|$AGENT_GIT_HP|frontend git"
+    agent_matrix agent "$ENV_AGENT"
+    for svc in $(extra_agents); do
+        agent_matrix "$svc" "$(ctr_env "$(svc_any "$svc")")"
+    done
     echo "kibbitzer|tcp|$KIB_API_HP|api"
     echo "kibbitzer|tcp|$KIB_REDIS_HP|redis"
     echo "kibbitzer|tcp|$KIB_TAC_HP|agent vault"
@@ -2463,32 +2592,11 @@ host_http() {
     fi
 }
 
-check_agents_connected() {
-    local local_agents out servers agents
-    [ -n "$REDIS_C" ] || return 0
-    local_agents=$(printf '%s\n' "$CTR" | awk -F'|' '$3 == "running" && $9 ~ /netpicker\/agent/' | grep -c .)
-    out=$(rlua "$API_REDIS_DB" "$LUA_AGENTS" 2>&1)
-    servers=$(printf '%s' "$out" | cut -f1)
-    agents=$(printf '%s' "$out" | cut -f2)
-    case "$servers$agents" in
-        '' | *[!0-9]*)
-            warn "could not count the agents connected to the api: $out"
-            return
-            ;;
-    esac
-    if [ "$agents" -gt 0 ]; then
-        pass "$agents agent(s) connected to the api websocket ($local_agents agent container(s) running in this stack)"
-    elif [ "$local_agents" -gt 0 ]; then
-        fail "no agent is connected to the api websocket although $local_agents agent container(s) run; check the agent logs"
-    else
-        warn "no agent is connected to the api websocket"
-    fi
-}
-
 check_connectivity() {
-    local src c ok failed s mode hp label out rc
+    local src c ok failed s mode hp label out rc matrix
     section "Connectivity between containers"
-    for src in api celery committer agent kibbitzer frontend; do
+    matrix=$(connectivity_matrix)
+    for src in api celery committer agent $(extra_agents) kibbitzer frontend; do
         c=$(svc_running "$src")
         if [ -z "$c" ]; then
             info "$(pad "$src") not running, skipped"
@@ -2506,7 +2614,7 @@ check_connectivity() {
                 *) fail "$(pad "$src") -> $label $hp: $out"; failed=1 ;;
             esac
         done <<EOF
-$(connectivity_matrix)
+$matrix
 EOF
         if [ $failed -eq 0 ]; then
             [ -z "$ok" ] || pass "$(pad "$src") ->$ok"
@@ -2526,7 +2634,314 @@ EOF
     host_http api 8000/tcp /api/v1/status http
     host_http frontend 80/tcp /health http
     host_http frontend 443/tcp /health https
-    check_agents_connected
+}
+
+# Load the services of the stack into STACK (see AWK_STACK): from the compose
+# config, or from the containers when the compose files could not be read.
+load_stack() {
+    local svc c
+    if [ -n "$CUR_CFG" ]; then
+        STACK=$(printf '%s\n' "$CUR_CFG" | awk "$AWK_FLAT" | awk -v re="$AGENT_IMAGE_RE" "$AWK_STACK")
+        return
+    fi
+    STACK=$(for svc in $(printf '%s\n' "$CTR" | cut -d'|' -f1 | sort -u); do
+        c=$(svc_any "$svc")
+        printf '%s\timage\t%s\n%s\tcontainer_name\t%s\n' "$svc" "$(ctr_field "$c" 9)" "$svc" "$c"
+        ctr_env "$c" | awk -v s="$svc" '{ i = index($0, "="); if (i) print s "\tenvironment." substr($0, 1, i - 1) "\t" substr($0, i + 1) }'
+    done | awk -v re="$AGENT_IMAGE_RE" "$AWK_STACK")
+}
+
+# the environment of a service of the stack, KEY=value lines
+stack_env() {
+    printf '%s\n' "$STACK" | awk -F'\t' -v s="$1" '$1 == "E" && $2 == s { print substr($0, length($2) + 4) }'
+}
+
+# the service of the stack that the host name NAME is: its service name,
+# container_name or container name
+stack_service() {
+    local s
+    s=$(printf '%s\n' "$STACK" | awk -F'\t' -v n="$1" '$1 == "S" && ($2 == n || ($4 != "" && $4 == n)) { print $2; exit }')
+    [ -n "$s" ] || s=$(printf '%s\n' "$CTR" | awk -F'|' -v n="$1" '$2 == n { print $1; exit }')
+    printf '%s\n' "$s"
+}
+
+beat_label() {
+    case "$1" in
+        '' | -) echo never ;;
+        *) echo "$(human_duration "$1") ago" ;;
+    esac
+}
+
+# Ask redis which agents are connected to the api: sets AGENTS_LIVE to the C
+# lines of PY_AGENTS, or AGENTS_LIVE_ERR to why it cannot tell.
+load_live_agents() {
+    local c out rc
+    AGENTS_LIVE= AGENTS_LIVE_ERR=
+    if ! c=$(first_running api celery committer); then
+        AGENTS_LIVE_ERR="no api, celery or committer container runs"
+        return 1
+    fi
+    out=$(printf '%s' "$PY_AGENTS" |
+        NP_REDIS_PASSWORD=$REDIS_PW docker exec -i -e NP_REDIS_PASSWORD "$c" python3 - "$REDIS_HP" "$API_REDIS_DB" 2>&1)
+    rc=$?
+    AGENTS_LIVE_ERR=$(printf '%s\n' "$out" | sed -n "s/^E$TAB//p" | head -n 1)
+    if [ $rc -ne 0 ] || [ -n "$AGENTS_LIVE_ERR" ]; then
+        [ -n "$AGENTS_LIVE_ERR" ] || AGENTS_LIVE_ERR=$(printf '%s\n' "$out" | tail -n 1)
+        return 1
+    fi
+    AGENTS_LIVE=$(printf '%s\n' "$out" | grep "^C$TAB")
+    return 0
+}
+
+# The agents in the database: are they connected, and do they run in this
+# stack? An agent in this stack shares its redis and kibbitzer; an agent in
+# another stack needs its own there, which cannot be checked from here.
+check_agents() {
+    local db_ok=0 live_ok=0 n ntenants label up nsvcs from lost c svc env id rt kaddr kport ksvc krt v
+    local sid tenant name beat devices nconn hosts svcs k multi u api_port celery_port missing remote=
+    local targets hp out rc names
+    section "Agents"
+    load_stack
+    AGENT_SVCS=$(printf '%s\n' "$STACK" | awk -F'\t' '$1 == "S" && $3 == "agent" { print $2 }')
+    # agent id<TAB>service, for the agent services of the stack
+    AGENT_MAP=$(for svc in $AGENT_SVCS; do
+        printf '%s\t%s\n' "$(agent_conf "$(stack_env "$svc")" AGENT_ID)" "$svc"
+    done)
+
+    if AGENTS_DB=$(db_query "$SQL_AGENTS"); then
+        db_ok=1
+    else
+        warn "could not read the agents from the database:"
+        printf '%s\n' "$AGENTS_DB" | tail -n 3 | details
+        AGENTS_DB=
+    fi
+    if load_live_agents; then
+        live_ok=1
+    else
+        warn "could not ask redis which agents are connected to the api, going by their heartbeats instead: $AGENTS_LIVE_ERR"
+    fi
+
+    # agent id, tenant, name, heartbeat age, devices, connections, hosts and
+    # services in this stack; "-" for none, as read skips empty fields
+    printf '%s\n' "$AGENTS_LIVE" >"$WORK/agents.live"
+    printf '%s\n' "$AGENT_MAP" >"$WORK/agents.map"
+    printf '%s\n' "$AGENTS_DB" >"$WORK/agents.db"
+    AGENTS=$(awk -F'\t' -v OFS='\t' '
+        FILENAME == ARGV[1] {
+            if ($1 == "C") {
+                nc[$2]++
+                if ($4 == "") $4 = "?"
+                if (!(($2, $4) in hs)) { hs[$2, $4] = 1; h[$2] = h[$2] (h[$2] == "" ? "" : ", ") $4 }
+            }
+            next
+        }
+        FILENAME == ARGV[2] { if ($1 != "") s[$1] = s[$1] (s[$1] == "" ? "" : ", ") $2; next }
+        $1 == "A" { print $2, $3, $4, ($5 == "" ? "-" : $5), $6, nc[$2] + 0, (h[$2] == "" ? "-" : h[$2]), (s[$2] == "" ? "-" : s[$2]) }
+    ' "$WORK/agents.live" "$WORK/agents.map" "$WORK/agents.db" | sort -t "$TAB" -k2,2 -k3,3)
+    n=$(printf '%s\n' "$AGENTS" | grep -c .)
+    if [ $db_ok -eq 1 ] && [ "$n" -eq 0 ]; then
+        fail "the agent table is empty, so no agent can connect; the api creates the default agent G7 (AGENT_ID $DEFAULT_AGENT_ID) when it starts without agents"
+    elif [ "$n" -gt 0 ]; then
+        info "$n agent(s) in the database$([ $live_ok -eq 0 ] || echo ", $(printf '%s\n' "$AGENTS" | awk -F'\t' '$6 > 0' | grep -c .) connected to the api"):"
+        {
+            printf 'agent id\tname\ttenant\tdevices\tlast heartbeat\tconnected\tservice in this stack\n'
+            while IFS="$TAB" read -r sid tenant name beat devices nconn hosts svcs; do
+                if [ $live_ok -eq 0 ]; then
+                    up=?
+                elif [ "$nconn" -gt 1 ]; then
+                    up="$nconn times, as $hosts"
+                elif [ "$nconn" -gt 0 ]; then
+                    up="yes, as $hosts"
+                else
+                    up=no
+                fi
+                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sid" "$name" "$tenant" "$devices" "$(beat_label "$beat")" "$up" "$svcs"
+            done <<EOF
+$AGENTS
+EOF
+        } | awk "$AWK_COLUMNS" | details
+    elif [ -n "$AGENTS_LIVE" ]; then
+        info "connected to the api: $(printf '%s\n' "$AGENTS_LIVE" | awk -F'\t' '{ printf "%s%s (tenant %s) as host %s", (NR > 1 ? ", " : ""), $2, $3, $4 } END { print "" }')"
+    fi
+
+    ntenants=$(printf '%s\n' "$AGENTS" | cut -f2 | sort -u | grep -c .)
+    while IFS="$TAB" read -r sid tenant name beat devices nconn hosts svcs; do
+        [ -n "$sid" ] || continue
+        label="agent $name ($sid$([ "$ntenants" -le 1 ] || echo ", tenant $tenant"))"
+        if [ $live_ok -eq 1 ]; then
+            up=$nconn
+        elif [ "$beat" != - ] && [ "$beat" -le "$AGENT_BEAT_AGE" ]; then
+            up=1
+        else
+            up=0
+        fi
+        lost=
+        [ "$devices" -eq 0 ] || lost="; its $devices device(s) get no backups until it connects"
+        if [ "$up" -gt 0 ]; then
+            from=
+            [ $live_ok -eq 0 ] || from=" as host $hosts"
+            [ "$nconn" -le 1 ] || from=" $nconn times$from"
+            if [ "$svcs" != - ]; then
+                pass "$label: connected$from, runs in this stack as service $svcs"
+            else
+                pass "$label: connected$from, runs outside this compose stack"
+                remote="$remote, $name"
+            fi
+            nsvcs=0
+            [ "$svcs" = - ] || nsvcs=$(printf '%s\n' "$svcs" | tr ',' '\n' | grep -c .)
+            # more agents in this stack with the same id are reported below
+            if [ "$nconn" -gt 1 ] && [ "$nconn" -gt "$nsvcs" ]; then
+                fail "$label is connected $nconn times: several agents use AGENT_ID $sid, but every agent needs its own"
+            fi
+        elif [ "$svcs" != - ]; then
+            # shellcheck disable=SC2046
+            c=$(first_running $(printf '%s' "$svcs" | tr ',' ' '))
+            if [ -n "$c" ]; then
+                fail "$label: not connected (last heartbeat $(beat_label "$beat")) although service $svcs runs in this stack; see 'docker logs $c'$lost"
+            else
+                fail "$label: not connected, its service $svcs in this stack does not run$lost"
+            fi
+        elif [ "$devices" -gt 0 ]; then
+            fail "$label: not connected (last heartbeat $(beat_label "$beat")) and not in this compose stack$lost"
+            remote="$remote, $name"
+        else
+            warn "$label: not connected (last heartbeat $(beat_label "$beat")) and not in this compose stack; no devices use it"
+            remote="$remote, $name"
+        fi
+    done <<EOF
+$AGENTS
+EOF
+
+    # the agent services of this stack: their AGENT_ID, and the redis and
+    # kibbitzer they share
+    if [ $db_ok -eq 1 ]; then
+        while IFS="$TAB" read -r id svc; do
+            [ -n "$id" ] || continue
+            printf '%s\n' "$AGENTS" | awk -F'\t' -v i="$id" '$1 == i { f = 1 } END { exit !f }' && continue
+            fail "$(pad "$svc") AGENT_ID $id$([ "$id" != "$DEFAULT_AGENT_ID" ] || echo ", the default,") is not an agent in the database, so the api refuses its connection; set AGENT_ID to the id of an agent in Netpicker"
+        done <<EOF
+$AGENT_MAP
+EOF
+    fi
+    while IFS="$TAB" read -r id svcs; do
+        [ -n "$id" ] || continue
+        fail "services $svcs all use AGENT_ID $id$([ "$id" != "$DEFAULT_AGENT_ID" ] || echo ", the default"), but every agent needs its own"
+    done <<EOF
+$(printf '%s\n' "$AGENT_MAP" | awk -F'\t' 'NF { n[$1]++; s[$1] = s[$1] (s[$1] == "" ? "" : ", ") $2 } END { for (i in n) if (n[i] > 1) print i "\t" s[i] }')
+EOF
+
+    : >"$WORK/agents.shared"
+    for svc in $AGENT_SVCS; do
+        env=$(stack_env "$svc")
+        rt=$(redis_target "$(agent_conf "$env" REDIS_URL)")
+        kaddr=$(agent_conf "$env" BACKUP_SVC_ADDR)
+        kport=$(agent_conf "$env" BACKUP_SVC_PORT)
+        ksvc=$(stack_service "$kaddr")
+        if [ -z "$(stack_service "${rt%%:*}")" ]; then
+            warn "$(pad "$svc") uses redis $rt (REDIS_URL), which is not a service of this stack; an agent in this stack shares the redis of the stack with kibbitzer"
+        fi
+        if [ -z "$ksvc" ]; then
+            warn "$(pad "$svc") sends its backups to $kaddr:$kport (BACKUP_SVC_ADDR), which is not a service of this stack; an agent in this stack shares the kibbitzer of the stack"
+            continue
+        fi
+        # kibbitzer pushes the backup results to the list aob-replies in its
+        # redis, the agent pops them from its own and sends them to the api
+        v=$(env_get "$(stack_env "$ksvc")" SHENV_REDIS_URL)
+        krt=$(redis_target "${v:-redis://redis/4}")
+        if [ "$krt" != "$rt" ]; then
+            fail "$(pad "$svc") waits for its backup results in redis $rt (REDIS_URL), but $ksvc puts them in $krt (SHENV_REDIS_URL), so its backups never finish; point both to the same redis database"
+            continue
+        fi
+        printf '%s\t%s\t%s\n' "$rt" "$kaddr:$kport" "$svc" >>"$WORK/agents.shared"
+    done
+    while IFS="$TAB" read -r rt k svcs; do
+        [ -n "$rt" ] || continue
+        case "$svcs" in
+            *,*) pass "agent services $svcs share kibbitzer $k and redis $rt of this stack, the redis kibbitzer reports to" ;;
+            *) pass "$(pad "$svcs") uses kibbitzer $k and redis $rt of this stack, the redis kibbitzer reports to" ;;
+        esac
+    done <<EOF
+$(awk -F'\t' '{ k = $1 "\t" $2; if (!(k in s)) o[++n] = k; s[k] = s[k] (s[k] == "" ? "" : ", ") $3 } END { for (i = 1; i <= n; i++) print o[i] "\t" s[o[i]] }' "$WORK/agents.shared")
+EOF
+
+    # Tenants with several agents. Without CLI_PROXY_PORT, the rules connect
+    # to port 9876 of the host of the first agent of the tenant that the api
+    # finds, whatever the agent of the device; with it, to the CLI proxy in
+    # the api, which passes each command to the agent of the device.
+    api_port=$(env_get "$ENV_API" CLI_PROXY_PORT)
+    celery_port=$(env_get "$(ctr_env "$(svc_any celery)")" CLI_PROXY_PORT)
+    [ "$api_port" != 0 ] || api_port=
+    [ "$celery_port" != 0 ] || celery_port=
+    multi=$(printf '%s\n' "$AGENTS" | awk -F'\t' 'NF { n[$2]++ } END { for (t in n) if (n[t] > 1) print t "\t" n[t] }' | sort)
+    if [ -n "$multi" ]; then
+        missing=
+        [ -n "$api_port" ] || missing=api
+        [ -n "$celery_port" ] || missing="${missing:+$missing and }celery"
+        if [ "$(printf '%s\n' "$multi" | grep -c .)" -eq 1 ]; then
+            names="tenant $(printf '%s\n' "$multi" | cut -f1) has $(printf '%s\n' "$multi" | cut -f2) agents"
+        else
+            names="tenants $(printf '%s\n' "$multi" | cut -f1 | paste -sd, - | sed 's/,/, /g') have several agents"
+        fi
+        if [ -n "$missing" ]; then
+            warn "$names, but CLI_PROXY_PORT is not set on $missing: policy rules that use device.cli() go to the CLI proxy of whichever agent of the tenant the api finds first, also for the devices of its other agents"
+            detail "Set CLI_PROXY_PORT: 9876 in the environment of api and celery, e.g. in docker-compose.override.yml; then the"
+            detail "rules connect to the CLI proxy in the api, which passes each command to the agent of the device."
+        elif [ "$api_port" != "$celery_port" ]; then
+            warn "CLI_PROXY_PORT differs between api ($api_port) and celery ($celery_port), so the rules cannot reach the CLI proxy in the api; set the same port on both"
+        fi
+    fi
+    while IFS="$TAB" read -r tenant n; do
+        [ -n "$tenant" ] || continue
+        u=$(printf '%s\n' "$AGENTS_DB" | awk -F'\t' -v t="$tenant" '$1 == "U" && $2 == t { print $3; exit }')
+        if [ "${u:-0}" -gt 0 ]; then
+            warn "tenant $tenant has $n agents and $u device(s) without an agent; the api splits their backups over the connected agents, so they fail when they land on an agent that cannot reach the device; assign every device to its agent"
+        fi
+    done <<EOF
+$multi
+EOF
+
+    # can celery, which runs the rules, reach the CLI proxies they use? The
+    # connectivity check above tests the one of the agent service.
+    c=$(svc_running celery)
+    targets=
+    if [ -n "$celery_port" ]; then
+        targets="api:$celery_port"
+    elif [ $live_ok -eq 1 ]; then
+        targets=$(printf '%s\n' "$AGENTS_LIVE" | awk -F'\t' -v skip="$CLI_HP" '$4 != "" && $4 ":9876" != skip { print $4 ":9876" }' | sort -u)
+    fi
+    [ -n "$c" ] || targets=
+    for hp in $targets; do
+        out=$(probe "$c" tcp "$hp")
+        rc=$?
+        if [ "$hp" = "api:$celery_port" ]; then
+            label="the CLI proxy in the api"
+        else
+            names=$(printf '%s\n' "$AGENTS" | awk -F'\t' -v h="${hp%:*}" '{ n = split($7, a, ", "); for (i = 1; i <= n; i++) if (a[i] == h) { printf "%s%s", (k++ ? ", " : ""), $3; break } } END { print "" }')
+            [ -n "$names" ] || names=$(printf '%s\n' "$AGENTS_LIVE" | awk -F'\t' -v h="${hp%:*}" '$4 == h && !seen[$2]++ { printf "%s%s", (k++ ? ", " : ""), $2 } END { print "" }')
+            label="the CLI proxy of agent $names"
+        fi
+        case $rc in
+            0) pass "$(pad celery) -> $label $hp" ;;
+            3) warn "$(pad celery) -> $label $hp: cannot test, $out" ;;
+            *)
+                if [ -n "$celery_port" ]; then
+                    fail "$(pad celery) -> $label $hp: $out; policy rules that use device.cli() fail"
+                else
+                    fail "$(pad celery) -> $label $hp: $out; policy rules that use device.cli() fail when the api picks this agent; set CLI_PROXY_PORT: 9876 on api and celery to reach the agents through the api instead"
+                fi
+                ;;
+        esac
+    done
+
+    if [ -n "$remote" ]; then
+        info "agent(s) ${remote#, } run outside this compose stack, so this script cannot check their setup. An agent in another stack needs its own redis and kibbitzer in that stack; on its host, check that:"
+        detail "- agent, kibbitzer and redis run together in that stack ('docker compose ps' there)"
+        detail "- REDIS_URL of the agent and SHENV_REDIS_URL of kibbitzer are the same redis database; kibbitzer"
+        detail "  ignores REDIS_URL, both default to redis://redis/4"
+        detail "- BACKUP_SVC_ADDR of the agent is the kibbitzer of that stack (default: kibbitzer)"
+        detail "- WS_ENDPOINT and SHENV_API_URL of the agent and SHENV_API_URL of kibbitzer reach this api"
+        detail "- AGENT_ID of the agent is its id in Netpicker, and no other agent uses it"
+    fi
 }
 
 redis_info() {
@@ -3063,6 +3478,15 @@ EOF
     } >"$BUNDLE_DIR/redis.txt" 2>&1
 
     {
+        echo "# agents in the database (A, agent id, tenant, name, heartbeat age, devices / U, tenant, devices without an agent)"
+        printf '%s\n' "$AGENTS_DB"
+        echo; echo "# agents connected to the api (C, agent id, tenant, host, api process)"
+        printf '%s\n' "$AGENTS_LIVE"
+        echo; echo "# agent services of the stack (agent id, service)"
+        printf '%s\n' "$AGENT_MAP"
+    } >"$BUNDLE_DIR/agents.txt" 2>&1
+
+    {
         echo "# alembic_version setting: $(env_get "$ENV_API" alembic_version)"
         echo; echo "# heads of the api image"; alembic_cmd heads
         echo; echo "# database revision"; db_revision
@@ -3130,6 +3554,7 @@ main() {
     check_resources
     check_migrations
     check_connectivity
+    check_agents
     check_redis
     check_workdir
     check_device_events

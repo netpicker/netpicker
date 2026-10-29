@@ -17,7 +17,10 @@
 # only reads state; when the api container is down it starts a throw-away
 # copy of the api image (without network) to read the alembic revisions.
 # With --clear-queues it does not check anything, but deletes the waiting and
-# in-flight tasks from the celery task queues in redis.
+# in-flight tasks from the celery task queues in redis. With --reset-workdir
+# it does not check anything either, but discards the uncommitted files and
+# stale git locks left behind in the git repos of the policy workdir with git
+# reset --hard.
 
 set -o pipefail
 
@@ -40,6 +43,17 @@ task queues instead, after it asked for confirmation. Use it when backups and
 policy runs stay scheduled while kibbitzer and committer are idle: the tasks
 in the queues are lost or stuck, and the next scheduled runs start afresh.
 
+With --reset-workdir it discards the uncommitted files in the git repos of the
+policy workdir instead, with git reset --hard and git clean, after it asked
+for confirmation. Use it when the check reports uncommitted files that a
+backup or policy run left behind over an hour ago and that are not needed: the
+files are lost. It skips repos with newer files, a running git command or a
+rebase, and keeps the commits that are not pushed to gitd. Repos with stale
+locks get a question of their own: git leaves a lock file behind when it is
+killed, and refuses to work in the repo until the file is removed, so nothing
+commits the files there. It removes the locks older than 10 minutes, then
+resets the repo, whatever the age of its files.
+
 Options:
   -p, --project NAME     Docker Compose project name (default: auto-detect)
   -s, --since DURATION   how far back to scan the logs, in "docker logs --since"
@@ -56,12 +70,16 @@ Options:
   -v, --verbose          show more log lines per container
       --clear-queues     delete all waiting and in-flight tasks from the celery
                          task queues in redis, then exit; runs no checks
-  -y, --yes              clear the queues without asking for confirmation
+      --reset-workdir    discard the uncommitted files and stale git locks left
+                         behind in the git repos of the policy workdir with git
+                         reset --hard and git clean, then exit; runs no checks
+  -y, --yes              clear the queues or reset the repos without asking for
+                         confirmation
       --no-color         disable colored output
   -h, --help             show this help
 
 Exit status: 0 all checks passed, 1 warnings, 2 failures, 3 could not run.
-With --clear-queues: 0 cleared or nothing to clear, 3 could not run.
+With --clear-queues or --reset-workdir: 0 done or nothing to do, 3 could not run.
 EOF
 }
 
@@ -74,6 +92,7 @@ BUNDLE=0
 VERBOSE=0
 COLOR=auto
 CLEAR_QUEUES=0
+RESET_WORKDIR=0
 ASSUME_YES=0
 # the -p option, repeated in the commands the advice gives
 PROJECT_OPT=
@@ -141,14 +160,23 @@ while [ $# -gt 0 ]; do
         -b | --bundle) BUNDLE=1; shift ;;
         -v | --verbose) VERBOSE=1; shift ;;
         --clear-queues) CLEAR_QUEUES=1; shift ;;
+        --reset-workdir) RESET_WORKDIR=1; shift ;;
         -y | --yes) ASSUME_YES=1; shift ;;
         --no-color) COLOR=no; shift ;;
         -h | --help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 3 ;;
     esac
 done
+if [ $CLEAR_QUEUES -eq 1 ] && [ $RESET_WORKDIR -eq 1 ]; then
+    echo "Options --clear-queues and --reset-workdir do not go together" >&2
+    exit 3
+fi
 if [ $CLEAR_QUEUES -eq 1 ] && [ $BUNDLE -eq 1 ]; then
     echo "Options --clear-queues and --bundle do not go together" >&2
+    exit 3
+fi
+if [ $RESET_WORKDIR -eq 1 ] && [ $BUNDLE -eq 1 ]; then
+    echo "Options --reset-workdir and --bundle do not go together" >&2
     exit 3
 fi
 
@@ -223,6 +251,18 @@ details() {
 die() {
     echo "${C_RED}error:${C_RESET} $*" >&2
     exit 3
+}
+
+# confirm QUESTION: true if the answer to QUESTION is yes; with --yes without asking
+confirm() {
+    local answer
+    [ $ASSUME_YES -eq 0 ] || return 0
+    printf '%s [y/N] ' "$1"
+    read -r answer
+    case "$answer" in
+        y | Y | yes | YES) return 0 ;;
+    esac
+    return 1
 }
 
 pad() {
@@ -1197,8 +1237,17 @@ EOF
 # uncommitted files, commits not pushed to gitd, stale lock files, unfinished
 # merges and directories the container user cannot write to.
 # Args: workdir, container name, max files to list, age in seconds after
-# which uncommitted work counts as left behind.
-# Output: PASS|WARN|FAIL|INFO|DETAIL<TAB>message
+# which uncommitted work counts as left behind, mode and its argument:
+#   check CMD     report the problems; advise CMD to discard the uncommitted
+#                 files and stale locks left behind
+#   list          report the repos with uncommitted files or stale locks left
+#                 behind, with a RESET<TAB>repo line for each that git reset
+#                 can clean and an UNLOCK<TAB>repo line for each that it can
+#                 clean once its stale locks are removed
+#   reset REPOS   discard the uncommitted files in REPOS, one per line, with
+#                 git reset --hard and git clean
+#   unlock REPOS  remove the stale locks in REPOS, then reset them
+# Output: PASS|WARN|FAIL|INFO|DETAIL|RESET|UNLOCK<TAB>message
 IFS= read -r -d '' PY_WORKDIR <<'EOF'
 import os
 import shutil
@@ -1208,6 +1257,7 @@ import time
 
 root, container = sys.argv[1], sys.argv[2]
 max_files, dirty_age = int(sys.argv[3]), int(sys.argv[4])
+mode, mode_arg = sys.argv[5], sys.argv[6] if len(sys.argv) > 6 else ""
 # a copy of the upstream CVE list that the api resets on every update; git
 # status takes long on its many files
 SKIP = {"cvelistv5"}
@@ -1227,6 +1277,10 @@ ENV = dict(os.environ, GIT_OPTIONAL_LOCKS="0", LC_ALL="C")
 FIX_OWNER = "fix the ownership of the volume, e.g. with fix-volume-permissions.sh"
 now = time.time()
 uid = os.getuid()
+
+
+class GitError(Exception):
+    pass
 
 
 def emit(kind, msg):
@@ -1288,6 +1342,24 @@ def git_dir(repo):
     return path
 
 
+def scan_git_dir(gdir):
+    """-> (first directory not writable, [(lock file, age)], (operation, age) of an unfinished one)"""
+    readonly, locks, state = None, [], None
+    for top, _, files in os.walk(gdir):
+        if readonly is None and not os.access(top, os.W_OK):
+            readonly = top
+        for f in files:
+            a = age(os.path.join(top, f)) if f.endswith(".lock") else None
+            if a is not None:
+                locks.append((os.path.join(top, f), a))
+    for marker, op in STATES:
+        a = age(os.path.join(gdir, marker))
+        if a is not None:
+            state = (op, a)
+            break
+    return readonly, locks, state
+
+
 def parse_status(out):
     """git status --porcelain=v2 -z -> (commits ahead, [(XY, path)], unmerged count)"""
     ahead, files, unmerged = 0, [], 0
@@ -1311,79 +1383,114 @@ def parse_status(out):
     return ahead, files, unmerged
 
 
+def git_status(repo):
+    """-> (commits ahead, [(age, XY, path)] oldest first and deleted files last, unmerged count)"""
+    proc = git(repo, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all")
+    if proc.returncode:
+        raise GitError(git_error(proc))
+    ahead, files, unmerged = parse_status(proc.stdout)
+    dated = sorted(((age(os.path.join(repo, p)), xy, p) for xy, p in files),
+                   key=lambda f: -1 if f[0] is None else f[0], reverse=True)
+    return ahead, dated, unmerged
+
+
+def left_behind(dated):
+    """True if the oldest uncommitted file is older than dirty_age, or all are deleted"""
+    return bool(dated) and (dated[0][0] is None or dated[0][0] >= dirty_age)
+
+
+def describe(dated, unmerged):
+    untracked = sum(1 for _, xy, _ in dated if xy == "??")
+    counts = ", ".join("%d %s" % (n, what) for n, what in (
+        (len(dated) - untracked - unmerged, "changed"),
+        (untracked, "untracked"),
+        (unmerged, "with conflicts"),
+    ) if n)
+    oldest = dated[0][0]
+    when = "" if oldest is None else ", the oldest changed %s ago" % duration(oldest)
+    return "%d uncommitted file(s) (%s)%s" % (len(dated), counts, when)
+
+
+def list_files(repo, dated):
+    for a, xy, p in dated[:max_files]:
+        emit("DETAIL", "%s %8s  %s" % (xy, "-" if a is None else duration(a), p))
+    if len(dated) > max_files:
+        emit("DETAIL", "... and %d more; see 'docker exec %s git -C %s status'"
+             % (len(dated) - max_files, container, repo))
+
+
+def describe_locks(repo, locks):
+    return "stale lock%s %s" % ("s" if len(locks) > 1 else "", ", ".join(
+        "%s from %s ago" % (os.path.relpath(lock, repo), duration(a)) for lock, a in locks))
+
+
+def reset_blocker(repo, readonly, locks, state, unlock=False):
+    """Why git reset cannot discard the uncommitted files of a repo, or None;
+    with unlock, once its stale locks are removed"""
+    if readonly:
+        return "%s is not writable for uid %d; %s" % (os.path.relpath(readonly, repo), uid, FIX_OWNER)
+    if any(a < LOCK_AGE for _, a in locks):
+        return "a git command is running; try again later"
+    if locks and not unlock:
+        return describe_locks(repo, locks)
+    if state and state[0] == "rebase":
+        if state[1] < LOCK_AGE:
+            return "a rebase is in progress; try again later"
+        return "unfinished rebase from %s ago; abort it first with 'git rebase --abort'" % duration(state[1])
+    return None
+
+
 def check(repo):
     """Report the problems of one repo; True if it has none."""
     name = os.path.relpath(repo, root)
-    gdir = git_dir(repo)
-    ok = True
+    readonly, locks, state = scan_git_dir(git_dir(repo))
+    ok = not (readonly or locks or state)
+    if reset_blocker(repo, readonly, locks, state, unlock=True):
+        unlock = " (only remove it when no git command runs)"
+    else:
+        unlock = "; remove it and reset the repo with '%s' (only when no git command runs)" % mode_arg
 
-    readonly, locks = None, []
-    for top, _, files in os.walk(gdir):
-        if readonly is None and not os.access(top, os.W_OK):
-            readonly = top
-        locks += [os.path.join(top, f) for f in files if f.endswith(".lock")]
     if readonly:
         emit("FAIL", "%s: %s is not writable for uid %d, so commits fail; %s"
              % (name, os.path.relpath(readonly, repo), uid, FIX_OWNER))
-        ok = False
-    for lock in locks:
-        a = age(lock)
-        if a is None:
-            continue
-        ok = False
+    for lock, a in locks:
         if a >= LOCK_AGE:
             emit("FAIL", "%s: stale lock %s from %s ago; git refuses to work in this repo until "
-                 "it is removed (only remove it when no git command runs)"
-                 % (name, os.path.relpath(lock, repo), duration(a)))
+                 "it is removed%s" % (name, os.path.relpath(lock, repo), duration(a), unlock))
         else:
             emit("INFO", "%s: %s from %s ago, a git command is running"
                  % (name, os.path.relpath(lock, repo), duration(a)))
-    for marker, op in STATES:
-        a = age(os.path.join(gdir, marker))
-        if a is None:
-            continue
-        ok = False
+    if state:
+        op, a = state
         if a >= LOCK_AGE:
             emit("FAIL", "%s: unfinished %s from %s ago; commits fail until it is aborted with "
                  "'git %s --abort'" % (name, op, duration(a), op))
         else:
             emit("INFO", "%s: a %s is in progress" % (name, op))
-        break
 
     try:
-        proc = git(repo, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all")
+        ahead, dated, unmerged = git_status(repo)
     except subprocess.TimeoutExpired:
         emit("WARN", "%s: git status did not finish within %ds" % (name, GIT_TIMEOUT))
         return False
-    if proc.returncode:
-        err = git_error(proc)
-        emit("FAIL", "%s: git status failed: %s" % (name, err))
-        if "dubious ownership" in err:
+    except GitError as exc:
+        emit("FAIL", "%s: git status failed: %s" % (name, exc))
+        if "dubious ownership" in str(exc):
             emit("DETAIL", "%s is owned by uid %d but the container runs as uid %d; %s"
                  % (repo, os.stat(repo).st_uid, uid, FIX_OWNER))
         return False
-    ahead, files, unmerged = parse_status(proc.stdout)
 
-    if files:
+    if dated:
         ok = False
-        # oldest first, deleted files (no age) last
-        dated = sorted(((age(os.path.join(repo, p)), xy, p) for xy, p in files),
-                       key=lambda f: -1 if f[0] is None else f[0], reverse=True)
-        oldest = dated[0][0]
-        untracked = sum(1 for _, xy, _ in dated if xy == "??")
-        counts = ", ".join("%d %s" % (n, what) for n, what in (
-            (len(files) - untracked - unmerged, "changed"),
-            (untracked, "untracked"),
-            (unmerged, "with conflicts"),
-        ) if n)
-        when = "" if oldest is None else ", the oldest changed %s ago" % duration(oldest)
-        emit("WARN" if oldest is None or oldest >= dirty_age else "INFO",
-             "%s: %d uncommitted file(s) (%s)%s" % (name, len(files), counts, when))
-        for a, xy, p in dated[:max_files]:
-            emit("DETAIL", "%s %8s  %s" % (xy, "-" if a is None else duration(a), p))
-        if len(dated) > max_files:
-            emit("DETAIL", "... and %d more; see 'docker exec %s git -C %s status'"
-                 % (len(dated) - max_files, container, repo))
+        msg = "%s: %s" % (name, describe(dated, unmerged))
+        if not left_behind(dated):
+            emit("INFO", msg)
+        elif reset_blocker(repo, readonly, locks, state):
+            emit("WARN", msg)
+        else:
+            emit("WARN", "%s; if they are not needed, discard them (git reset --hard) with '%s'"
+                 % (msg, mode_arg))
+        list_files(repo, dated)
 
     if ahead > 0:
         ok = False
@@ -1398,17 +1505,101 @@ def check(repo):
     return ok
 
 
+def list_reset(repo):
+    """Report the uncommitted files and stale locks left behind in one repo; True if it has no
+    uncommitted files."""
+    name = os.path.relpath(repo, root)
+    readonly, locks, state = scan_git_dir(git_dir(repo))
+    try:
+        _, dated, unmerged = git_status(repo)
+    except subprocess.TimeoutExpired:
+        emit("WARN", "%s: skipped, git status did not finish within %ds" % (name, GIT_TIMEOUT))
+        return False
+    except GitError as exc:
+        emit("WARN", "%s: skipped, git status failed: %s" % (name, exc))
+        return False
+    if locks and all(a >= LOCK_AGE for _, a in locks):
+        # git refuses to work in the repo, so no backup or policy run can commit its files
+        msg = "%s: %s" % (name, describe_locks(repo, locks))
+        if dated:
+            msg += " and " + describe(dated, unmerged)
+        reason = reset_blocker(repo, readonly, locks, state, unlock=True)
+        if reason:
+            emit("WARN", "%s; skipped, %s" % (msg, reason))
+        else:
+            emit("INFO", msg)
+            list_files(repo, dated)
+            emit("UNLOCK", name)
+        return False
+    if not dated:
+        return True
+    msg = "%s: %s" % (name, describe(dated, unmerged))
+    reason = reset_blocker(repo, readonly, locks, state)
+    if not left_behind(dated):
+        emit("INFO", "%s; skipped, a backup or policy run may still commit them" % msg)
+    elif reason:
+        emit("WARN", "%s; skipped, %s" % (msg, reason))
+    else:
+        emit("INFO", msg)
+        list_files(repo, dated)
+        emit("RESET", name)
+    return False
+
+
+def reset(repo, unlock):
+    """Discard the uncommitted files of one repo with git reset --hard and git clean;
+    with unlock, remove its stale locks first."""
+    name = os.path.relpath(repo, root)
+    if not os.path.exists(os.path.join(repo, ".git")):
+        emit("WARN", "%s: not reset, it is no longer a git repo" % name)
+        return
+    readonly, locks, state = scan_git_dir(git_dir(repo))
+    reason = reset_blocker(repo, readonly, locks, state, unlock)
+    if reason:
+        emit("WARN", "%s: not reset, %s" % (name, reason))
+        return
+    if locks:
+        for lock, _ in locks:
+            try:
+                os.remove(lock)
+            except FileNotFoundError:
+                pass
+        emit("INFO", "%s: removed the %s" % (name, describe_locks(repo, locks)))
+    _, before, _ = git_status(repo)
+    for args in (("reset", "--hard", "--quiet"), ("clean", "-d", "--force", "--quiet")):
+        proc = git(repo, *args)
+        if proc.returncode:
+            emit("FAIL", "%s: git %s failed: %s" % (name, args[0], git_error(proc)))
+            return
+    _, after, _ = git_status(repo)
+    head = git(repo, "rev-parse", "--short", "HEAD").stdout.decode(errors="replace").strip()
+    if after:
+        emit("WARN", "%s: reset to %s, but %d uncommitted file(s) are left" % (name, head, len(after)))
+        list_files(repo, after)
+    elif before:
+        emit("PASS", "%s: reset to %s, discarded %d uncommitted file(s)" % (name, head, len(before)))
+    else:
+        emit("PASS", "%s: reset to %s, no uncommitted files" % (name, head))
+
+
 if not os.path.isdir(root):
     emit("WARN", "%s does not exist in the %s container" % (root, container))
     sys.exit(0)
 if not shutil.which("git"):
     emit("WARN", "no git in the %s container, cannot check %s" % (container, root))
     sys.exit(0)
+if mode in ("reset", "unlock"):
+    for name in mode_arg.splitlines():
+        try:
+            reset(os.path.join(root, name), mode == "unlock")
+        except Exception as exc:
+            emit("FAIL", "%s: could not reset: %s" % (name, exc))
+    sys.exit(0)
 clean, found = [], 0
 for repo in find_repos():
     found += 1
     try:
-        if check(repo):
+        if (list_reset if mode == "list" else check)(repo):
             clean.append(os.path.relpath(repo, root))
     except Exception as exc:
         emit("WARN", "%s: could not check: %s" % (os.path.relpath(repo, root), exc))
@@ -1416,7 +1607,8 @@ if not found:
     emit("INFO", "no git repos found in %s" % root)
 elif clean:
     names = ", ".join(clean[:10]) + (" and %d more" % (len(clean) - 10) if len(clean) > 10 else "")
-    emit("PASS", "%d of %d repo(s) clean: %s" % (len(clean), found, names))
+    emit("PASS", "%d of %d repo(s) %s: %s" % (
+        len(clean), found, "without uncommitted files" if mode == "list" else "clean", names))
 EOF
 
 # Classify log lines as C (critical) or E (error); lines with an explicit
@@ -3149,24 +3341,17 @@ check_redis() {
     report_queues
 }
 
-check_workdir() {
-    local root c max out rc kind msg
-    root=$(env_get "$ENV_API" WORKDIR_VOLUME_PATH)
-    root=${root:-/data/policy-workdir}
-    section "Git repos in the policy workdir ($root)"
-    # api, celery and committer share the policy-data volume
-    if ! c=$(first_running api celery committer); then
-        warn "no api, celery or committer container runs to check $root in"
-        return
-    fi
-    max=5
+# workdir_py CONTAINER ROOT MODE [ARG]: run PY_WORKDIR on the policy workdir
+# ROOT in CONTAINER
+workdir_py() {
+    local max=5
     [ $VERBOSE -eq 0 ] || max=25
-    out=$(printf '%s' "$PY_WORKDIR" | docker exec -i "$c" python3 - "$root" "$c" "$max" "$WORKDIR_AGE" 2>&1)
-    rc=$?
-    if [ $rc -ne 0 ]; then
-        warn "could not check the git repos in $root: $(printf '%s\n' "$out" | tail -n 1)"
-        return
-    fi
+    printf '%s' "$PY_WORKDIR" | docker exec -i "$1" python3 - "$2" "$1" "$max" "$WORKDIR_AGE" "${@:3}" 2>&1
+}
+
+# report the output of PY_WORKDIR
+report_workdir() {
+    local kind msg
     while IFS="$TAB" read -r kind msg; do
         case "$kind" in
             PASS) pass "$msg" ;;
@@ -3176,8 +3361,25 @@ check_workdir() {
             DETAIL) detail "$msg" ;;
         esac
     done <<EOF
-$out
+$1
 EOF
+}
+
+check_workdir() {
+    local root c out
+    root=$(env_get "$ENV_API" WORKDIR_VOLUME_PATH)
+    root=${root:-/data/policy-workdir}
+    section "Git repos in the policy workdir ($root)"
+    # api, celery and committer share the policy-data volume
+    if ! c=$(first_running api celery committer); then
+        warn "no api, celery or committer container runs to check $root in"
+        return
+    fi
+    if ! out=$(workdir_py "$c" "$root" check "$SELF$PROJECT_OPT --reset-workdir"); then
+        warn "could not check the git repos in $root: $(printf '%s\n' "$out" | tail -n 1)"
+        return
+    fi
+    report_workdir "$out"
 }
 
 event_label() {
@@ -3328,7 +3530,7 @@ EOF
 # Delete the waiting and in-flight tasks of the celery queues in every redis
 # database, after listing them and asking for confirmation.
 clear_queues() {
-    local out dbs snap waiting inflight answer db cleared held rc=0 workers
+    local out dbs snap waiting inflight db cleared held rc=0 workers
     section "Clear the redis task queues of compose project $PROJECT"
     if [ -z "$REDIS_C" ]; then
         [ "${REDIS_HP%%:*}" = redis ] || die "redis is external ($REDIS_HP); --clear-queues needs the redis service of this stack"
@@ -3360,14 +3562,10 @@ clear_queues() {
         return 0
     fi
 
-    if [ $ASSUME_YES -eq 0 ]; then
-        [ -t 0 ] || die "not clearing the queues without confirmation; add --yes to clear them without asking"
-        printf 'Delete these %d waiting and %d in-flight task(s)? They will not run. [y/N] ' "$waiting" "$inflight"
-        read -r answer
-        case "$answer" in
-            y | Y | yes | YES) ;;
-            *) say "Nothing cleared."; return 0 ;;
-        esac
+    [ $ASSUME_YES -eq 1 ] || [ -t 0 ] || die "not clearing the queues without confirmation; add --yes to clear them without asking"
+    if ! confirm "Delete these $waiting waiting and $inflight in-flight task(s)? They will not run."; then
+        say "Nothing cleared."
+        return 0
     fi
 
     held=0
@@ -3391,6 +3589,52 @@ clear_queues() {
         [ -z "$workers" ] || info "the workers may still run in-flight tasks they had taken; to drop those as well, restart them with 'docker restart ${workers% }'"
     fi
     return $rc
+}
+
+# ---------------------------------------------------------------------------
+# --reset-workdir
+
+# "N repo(s) (a, b)" for the repos, one per line, in $1
+repo_list() {
+    printf '%d repo(s) (%s)' "$(printf '%s\n' "$1" | grep -c .)" "$(printf '%s\n' "$1" | paste -sd, - | sed 's/,/, /g')"
+}
+
+# Discard the uncommitted files and stale git locks left behind in the git
+# repos of the policy workdir with git reset --hard and git clean, after
+# listing them and asking for confirmation: once for the repos without locks
+# and once for the repos with stale locks.
+reset_workdir() {
+    local root c out repos locked
+    root=$(env_get "$ENV_API" WORKDIR_VOLUME_PATH)
+    root=${root:-/data/policy-workdir}
+    section "Reset the git repos in the policy workdir ($root) of compose project $PROJECT"
+    c=$(first_running api celery committer) || die "no api, celery or committer container runs to reset the git repos in $root in"
+    out=$(workdir_py "$c" "$root" list) || die "could not list the git repos in $root: $(printf '%s\n' "$out" | tail -n 1)"
+    report_workdir "$out"
+    repos=$(printf '%s\n' "$out" | sed -n "s/^RESET$TAB//p")
+    locked=$(printf '%s\n' "$out" | sed -n "s/^UNLOCK$TAB//p")
+    if [ -z "$repos$locked" ]; then
+        say "Nothing to reset."
+        return 0
+    fi
+
+    [ $ASSUME_YES -eq 1 ] || [ -t 0 ] || die "not resetting the repos without confirmation; add --yes to reset them without asking"
+    [ -z "$repos" ] || confirm "Discard the uncommitted files in $(repo_list "$repos") with git reset --hard and git clean? They are lost." || repos=
+    [ -z "$locked" ] || confirm "Remove the stale git locks in $(repo_list "$locked") and reset them with git reset --hard and git clean? Their uncommitted files are lost." || locked=
+    if [ -z "$repos$locked" ]; then
+        say "Nothing reset."
+        return 0
+    fi
+
+    if [ -n "$repos" ]; then
+        out=$(workdir_py "$c" "$root" reset "$repos") || die "could not reset the git repos in $root: $(printf '%s\n' "$out" | tail -n 1)"
+        report_workdir "$out"
+    fi
+    if [ -n "$locked" ]; then
+        out=$(workdir_py "$c" "$root" unlock "$locked") || die "could not reset the git repos in $root: $(printf '%s\n' "$out" | tail -n 1)"
+        report_workdir "$out"
+    fi
+    [ $N_FAIL -eq 0 ] || return 3
 }
 
 # ---------------------------------------------------------------------------
@@ -3539,6 +3783,11 @@ main() {
     if [ $CLEAR_QUEUES -eq 1 ]; then
         resolve_targets
         clear_queues
+        exit $?
+    fi
+    if [ $RESET_WORKDIR -eq 1 ]; then
+        resolve_targets
+        reset_workdir
         exit $?
     fi
     setup_bundle

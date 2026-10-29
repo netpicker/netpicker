@@ -15,6 +15,8 @@
 # Run it on the Docker host as a user that can access the Docker daemon. It
 # only reads state; when the api container is down it starts a throw-away
 # copy of the api image (without network) to read the alembic revisions.
+# With --clear-queues it does not check anything, but deletes the waiting and
+# in-flight tasks from the celery task queues in redis.
 
 set -o pipefail
 
@@ -30,6 +32,11 @@ migration (alembic) revision, connectivity between containers, the redis task
 queues, uncommitted files in the git repos of the policy workdir, the last
 backup and policy run of every device and errors in the container logs.
 
+With --clear-queues it deletes the waiting and in-flight tasks from the redis
+task queues instead, after it asked for confirmation. Use it when backups and
+policy runs stay scheduled while kibbitzer and committer are idle: the tasks
+in the queues are lost or stuck, and the next scheduled runs start afresh.
+
 Options:
   -p, --project NAME     Docker Compose project name (default: auto-detect)
   -s, --since DURATION   how far back to scan the logs, in "docker logs --since"
@@ -44,10 +51,14 @@ Options:
                          directory with logs, container details, redis and
                          migration state; secrets are masked on a best-effort basis
   -v, --verbose          show more log lines per container
+      --clear-queues     delete all waiting and in-flight tasks from the celery
+                         task queues in redis, then exit; runs no checks
+  -y, --yes              clear the queues without asking for confirmation
       --no-color         disable colored output
   -h, --help             show this help
 
 Exit status: 0 all checks passed, 1 warnings, 2 failures, 3 could not run.
+With --clear-queues: 0 cleared or nothing to clear, 3 could not run.
 EOF
 }
 
@@ -59,6 +70,10 @@ IGNORE_RE=
 BUNDLE=0
 VERBOSE=0
 COLOR=auto
+CLEAR_QUEUES=0
+ASSUME_YES=0
+# the -p option, repeated in the commands the advice gives
+PROJECT_OPT=
 
 REQUIRED_SERVICES="db redis minio gitd gitdctrl api celery committer agent kibbitzer frontend"
 OPTIONAL_SERVICES="swagger cadvisor syslog-ng"
@@ -83,6 +98,10 @@ RELEASE_RE='^v?[0-9]+(\.[0-9]+)+$'
 VERSION_RE='^v?[0-9]+(\.[0-9]+)+(-[0-9A-Za-z.-]+)?$'
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+case "$0" in
+    */*) SELF=$0 ;;
+    *) SELF=./$0 ;;
+esac
 
 need_value() {
     if [ $# -lt 2 ] || [ -z "$2" ]; then
@@ -102,18 +121,24 @@ need_number() {
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        -p | --project) need_value "$@"; PROJECT=$2; shift 2 ;;
+        -p | --project) need_value "$@"; PROJECT=$2; PROJECT_OPT=" -p $2"; shift 2 ;;
         -s | --since) need_value "$@"; SINCE=$2; shift 2 ;;
         -i | --interval) need_value "$@"; need_number "$1" "$2"; INTERVAL=$2; shift 2 ;;
         --task-age) need_value "$@"; need_number "$1" "$2"; TASK_AGE=$2; shift 2 ;;
         --ignore) need_value "$@"; IGNORE_RE="${IGNORE_RE:+$IGNORE_RE|}($2)"; shift 2 ;;
         -b | --bundle) BUNDLE=1; shift ;;
         -v | --verbose) VERBOSE=1; shift ;;
+        --clear-queues) CLEAR_QUEUES=1; shift ;;
+        -y | --yes) ASSUME_YES=1; shift ;;
         --no-color) COLOR=no; shift ;;
         -h | --help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 3 ;;
     esac
 done
+if [ $CLEAR_QUEUES -eq 1 ] && [ $BUNDLE -eq 1 ]; then
+    echo "Options --clear-queues and --bundle do not go together" >&2
+    exit 3
+fi
 
 # ---------------------------------------------------------------------------
 # output
@@ -598,9 +623,12 @@ EOF
 # the default "\x06\x16" separator, kibbitzer and agent use "^". Priority
 # sub-queues are <queue><sep>1 and <queue><sep>2. In-flight (unacked)
 # messages are in the "unacked" hash, delivery times in "unacked_index".
+# With the argument "clear" it also deletes the queues and the in-flight
+# messages; the bindings stay, so the workers keep consuming the queues.
 # Output: Q<TAB>queue<TAB>separator<TAB>length and
 #         U<TAB>unacked count<TAB>oldest age in seconds<TAB>task<TAB>routing key
 IFS= read -r -d '' LUA_QUEUES <<'EOF'
+local clear = ARGV[1] == "clear"
 local out, seen = {}, {}
 local seps = { { "\6\22", "x06x16" }, { "^", "^" } }
 local cursor = "0"
@@ -625,7 +653,10 @@ repeat
               local n = 0
               for _, key in ipairs({ queue, queue .. sep .. "1", queue .. sep .. "2" }) do
                 local len = redis.pcall("LLEN", key)
-                if type(len) == "number" then n = n + len end
+                if type(len) == "number" then
+                  n = n + len
+                  if clear and len > 0 then redis.call("DEL", key) end
+                end
               end
               table.insert(out, "Q\t" .. queue .. "\t" .. label .. "\t" .. n)
             end
@@ -653,6 +684,7 @@ if oldest[2] then
   end
 end
 table.insert(out, "U\t" .. redis.call("HLEN", "unacked") .. "\t" .. age .. "\t" .. task .. "\t" .. rkey)
+if clear then redis.call("DEL", "unacked", "unacked_index") end
 return out
 EOF
 
@@ -731,10 +763,11 @@ with create_engine(common_config.ALEMBIC_URI).connect() as conn:
 EOF
 
 # The last event of every device per kind of event (a trigger deletes the
-# earlier ones): readout is a backup, exec-rules a policy run and exec-job an
-# automation job. The phase goes scheduled -> started -> finished, or
-# cancelled; failed backups have success false or an error in the details,
-# failed policy runs and jobs an exception. Ages are in seconds, times in UTC.
+# earlier ones): readout is a backup and exec-rules a policy run. Automation
+# jobs (exec-job) are left out: they stay scheduled until their run in the
+# future. The phase goes scheduled -> started -> finished, or cancelled;
+# failed backups have success false or an error in the details, failed policy
+# runs an exception. Ages are in seconds, times in UTC.
 # Output: S tenant event status devices oldest oldest-age newest newest-age
 #         E tenant event error devices newest-age example-addresses
 #         X tenant event phase devices oldest-age example-addresses (unfinished
@@ -756,6 +789,7 @@ WITH ev AS (
     FROM deviceevent e
     JOIN device d ON d.id = e.device_id
     LEFT JOIN tenant t ON t.id = d.tenant_id
+    WHERE e.event <> 'exec-job'
 )
 SELECT 'S', tenant, event, status, count(*)::text,
        to_char(min(registered), 'YYYY-MM-DD HH24:MI'), max(age)::text,
@@ -795,8 +829,8 @@ function dur(s) {
     if (s >= 60) return int(s / 60) "m " s % 60 "s"
     return s "s"
 }
-function label(e) { return e == "readout" ? "backup" : e == "exec-rules" ? "policy run" : e == "exec-job" ? "job" : e }
-function erank(e) { return e == "readout" ? 1 : e == "exec-rules" ? 2 : e == "exec-job" ? 3 : 4 }
+function label(e) { return e == "readout" ? "backup" : e == "exec-rules" ? "policy run" : e }
+function erank(e) { return e == "readout" ? 1 : e == "exec-rules" ? 2 : 3 }
 function srank(s) {
     return s == "succeeded" ? 1 : s == "finished" ? 2 : s == "failed" ? 3 : s == "cancelled" ? 4 \
         : s == "started" ? 5 : s == "scheduled" ? 6 : s == "never" ? 9 : 7
@@ -1345,14 +1379,16 @@ rcli() {
     fi
 }
 
-# rlua DB SCRIPT: run a Lua script in a redis database
+# rlua DB SCRIPT [ARG...]: run a Lua script in a redis database
 rlua() {
+    local db=$1 script=$2
+    shift 2
     if [ -n "$REDIS_PW" ]; then
-        printf '%s' "$2" | REDISCLI_AUTH=$REDIS_PW docker exec -i -e REDISCLI_AUTH "$REDIS_C" \
-            sh -c 'redis-cli --raw -n "$1" EVAL "$(cat)" 0' sh "$1"
+        printf '%s' "$script" | REDISCLI_AUTH=$REDIS_PW docker exec -i -e REDISCLI_AUTH "$REDIS_C" \
+            sh -c 'db=$1; shift; redis-cli --raw -n "$db" EVAL "$(cat)" 0 "$@"' sh "$db" "$@"
     else
-        printf '%s' "$2" | docker exec -i "$REDIS_C" \
-            sh -c 'redis-cli --raw -n "$1" EVAL "$(cat)" 0' sh "$1"
+        printf '%s' "$script" | docker exec -i "$REDIS_C" \
+            sh -c 'db=$1; shift; redis-cli --raw -n "$db" EVAL "$(cat)" 0 "$@"' sh "$db" "$@"
     fi
 }
 
@@ -2518,20 +2554,36 @@ inspect_workers() {
     wait
 }
 
+# Did kibbitzer or committer have work while the queues were watched? The
+# device event check uses it to tell lost tasks from a long wait.
+QUEUES_WATCHED=0
+WORKERS_BUSY=0
+WORKERS_UNKNOWN=0
+
+# mark_busy SERVICE: a worker of SERVICE ran tasks or drained a queue
+mark_busy() {
+    case "$1" in
+        kibbitzer | committer) WORKERS_BUSY=1 ;;
+    esac
+}
+
 report_workers() {
     local db f worker conc act res sch queues svc c host
     for db in $BROKER_DBS; do
         f="$WORK/inspect.$db"
         if [ -z "$INSPECT_C" ]; then
+            WORKERS_UNKNOWN=1
             fail "db$db: no api, celery or committer container runs to inspect the workers with"
             continue
         fi
         if grep -q "^E$TAB" "$f"; then
+            WORKERS_UNKNOWN=1
             warn "db$db: could not inspect the workers: $(grep "^E$TAB" "$f" | head -n 1 | cut -f2-)"
             continue
         fi
         if ! grep -q "^W$TAB" "$f"; then
             if [ -s "$f" ]; then
+                WORKERS_UNKNOWN=1
                 warn "db$db: could not inspect the workers: $(tail -n 1 "$f")"
             else
                 fail "db$db: no celery worker answers on this broker"
@@ -2540,6 +2592,7 @@ report_workers() {
         fi
         while IFS="$TAB" read -r _ worker conc act res sch queues; do
             svc=$(host_service "${worker#*@}")
+            [ "${act:-0}" -eq 0 ] || mark_busy "$svc"
             if [ -n "$svc" ]; then svc="$svc ($worker)"; else svc="$worker (not in this stack)"; fi
             pass "db$db worker $svc: $act/$conc busy, $res reserved, $sch scheduled; queues: $(printf '%s' "$queues" | sed 's/,/, /g')"
         done <<EOF
@@ -2561,7 +2614,7 @@ EOF
 }
 
 report_queues() {
-    local db q n1 n2 ncons conc active empty f u1 count age task rkey held orphans
+    local db q n1 n2 ncons conc active empty f u1 count age task rkey held orphans w
     for db in $BROKER_DBS; do
         f="$WORK/inspect.$db"
         [ -f "$f" ] || : >"$f"
@@ -2586,6 +2639,9 @@ EOF
                 esac
             elif [ "$n2" -lt "$n1" ]; then
                 pass "db$db queue $q: draining, $n1 -> $n2 message(s) in ${ELAPSED}s by $ncons worker(s)"
+                for w in $(awk -F'\t' -v q="$q" '$1 == "W" { n = split($7, a, ","); for (i = 1; i <= n; i++) if (a[i] == q) print $2 }' "$f"); do
+                    mark_busy "$(host_service "${w#*@}")"
+                done
             elif [ "$conc" -gt 0 ] && [ "$active" -ge "$conc" ]; then
                 warn "db$db queue $q: backlog of $n2 message(s) ($n1 -> $n2 in ${ELAPSED}s); all $conc worker slot(s) are busy, so it is slow rather than stuck"
             else
@@ -2673,6 +2729,7 @@ check_redis() {
     ELAPSED=$((SECONDS - t0))
     # shellcheck disable=SC2086
     SNAP2=$(queue_snapshot $dbs)
+    QUEUES_WATCHED=1
     report_workers
     report_queues
 }
@@ -2712,7 +2769,6 @@ event_label() {
     case "$1" in
         readout) echo backup ;;
         exec-rules) echo "policy run" ;;
-        exec-job) echo job ;;
         *) echo "$1" ;;
     esac
 }
@@ -2761,7 +2817,7 @@ EOF
 }
 
 check_device_events() {
-    local out rc t total excluded tenants prefix=
+    local out rc t total excluded tenants prefix= lost ev n
     section "Device backups and policy runs (last event per device)"
     out=$(db_query "$(printf '%s\n' "$SQL_DEVICE_EVENTS" | sed "s/@TASK_AGE@/$TASK_AGE/")")
     rc=$?
@@ -2793,6 +2849,18 @@ EOF
     done <<EOF
 $tenants
 EOF
+
+    # scheduled long ago, not started, and the workers that run and commit
+    # them have nothing to do: their tasks will not run any more
+    lost=
+    for ev in readout exec-rules; do
+        n=$(printf '%s\n' "$EVENTS" | awk -F'\t' -v e="$ev" '$1 == "X" && $3 == e && $4 == "scheduled" { n += $5 } END { print n + 0 }')
+        [ "$n" -eq 0 ] || lost="$lost, $n $(event_label "$ev")(s)"
+    done
+    if [ -n "$lost" ] && [ $QUEUES_WATCHED -eq 1 ] && [ $WORKERS_BUSY -eq 0 ] && [ $WORKERS_UNKNOWN -eq 0 ]; then
+        warn "${lost#, } scheduled over $(human_duration "$TASK_AGE") ago have not started and kibbitzer and committer are idle, so their tasks are lost or stuck; clear the task queues with '$SELF$PROJECT_OPT --clear-queues'"
+        detail "This deletes all waiting and in-flight tasks from redis; the next scheduled backups and policy runs start afresh."
+    fi
 }
 
 check_logs() {
@@ -2837,6 +2905,77 @@ check_logs() {
 $CTR
 EOF
     [ -z "$clean" ] || pass "no errors in:$clean"
+}
+
+# ---------------------------------------------------------------------------
+# --clear-queues
+
+# Delete the waiting and in-flight tasks of the celery queues in every redis
+# database, after listing them and asking for confirmation.
+clear_queues() {
+    local out dbs snap waiting inflight answer db cleared held rc=0 workers
+    section "Clear the redis task queues of compose project $PROJECT"
+    if [ -z "$REDIS_C" ]; then
+        [ "${REDIS_HP%%:*}" = redis ] || die "redis is external ($REDIS_HP); --clear-queues needs the redis service of this stack"
+        die "redis is not running"
+    fi
+    out=$(rcli PING 2>&1)
+    [ "$out" = PONG ] || die "redis does not answer PING: $out"
+    dbs=$(rcli INFO keyspace 2>&1 | tr -d '\r' | sed -n 's/^db\([0-9][0-9]*\):.*/\1/p')
+    # shellcheck disable=SC2086
+    snap=$(queue_snapshot $dbs)
+    out=$(printf '%s\n' "$snap" | awk -F'\t' 'NF && $2 != "Q" && $2 != "U"' | head -n 1)
+    [ -z "$out" ] || die "could not read the task queues from redis: $(printf '%s' "$out" | cut -f2-)"
+    BROKER_DBS=$(printf '%s\n' "$snap" | awk -F'\t' '$2 == "Q" { print $1 }' | sort -un)
+    if [ -z "$BROKER_DBS" ]; then
+        pass "no celery queues found in redis; nothing to clear"
+        return 0
+    fi
+
+    printf '%s\n' "$snap" | awk -F'\t' '$2 == "Q" && $5 > 0' | while IFS="$TAB" read -r db _ q _ n; do
+        info "db$db queue $q: $n task(s) waiting"
+    done
+    printf '%s\n' "$snap" | awk -F'\t' '$2 == "U" && $3 > 0' | while IFS="$TAB" read -r db _ n age task rkey; do
+        info "db$db: $n task(s) in flight, the oldest ${task:-?} (queue ${rkey:-?}) for $(human_duration "$age")"
+    done
+    waiting=$(printf '%s\n' "$snap" | awk -F'\t' '$2 == "Q" { n += $5 } END { print n + 0 }')
+    inflight=$(printf '%s\n' "$snap" | awk -F'\t' '$2 == "U" { n += $3 } END { print n + 0 }')
+    if [ $((waiting + inflight)) -eq 0 ]; then
+        pass "the task queues are empty and no tasks are in flight; nothing to clear"
+        return 0
+    fi
+
+    if [ $ASSUME_YES -eq 0 ]; then
+        [ -t 0 ] || die "not clearing the queues without confirmation; add --yes to clear them without asking"
+        printf 'Delete these %d waiting and %d in-flight task(s)? They will not run. [y/N] ' "$waiting" "$inflight"
+        read -r answer
+        case "$answer" in
+            y | Y | yes | YES) ;;
+            *) say "Nothing cleared."; return 0 ;;
+        esac
+    fi
+
+    held=0
+    for db in $BROKER_DBS; do
+        out=$(rlua "$db" "$LUA_QUEUES" clear 2>&1)
+        if printf '%s\n' "$out" | awk -F'\t' 'NF && $1 != "Q" && $1 != "U" { bad = 1 } END { exit !bad }'; then
+            fail "db$db: could not clear the task queues: $(printf '%s\n' "$out" | awk -F'\t' 'NF && $1 != "Q" && $1 != "U"' | head -n 1)"
+            rc=3
+            continue
+        fi
+        waiting=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "Q" { n += $4 } END { print n + 0 }')
+        cleared=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "U" { n += $2 } END { print n + 0 }')
+        pass "db$db: deleted $waiting waiting and $cleared in-flight task(s)"
+        held=$((held + cleared))
+    done
+
+    # every task a worker has taken is in flight, and the worker runs it even
+    # after it is deleted from redis
+    if [ "$held" -gt 0 ]; then
+        workers=$(printf '%s\n' "$CTR" | awk -F'|' '($1 == "kibbitzer" || $1 == "celery" || $1 == "committer") && $3 == "running" { printf "%s ", $2 }')
+        [ -z "$workers" ] || info "the workers may still run in-flight tasks they had taken; to drop those as well, restart them with 'docker restart ${workers% }'"
+    fi
+    return $rc
 }
 
 # ---------------------------------------------------------------------------
@@ -2973,6 +3112,11 @@ main() {
     preflight
     detect_project
     load_containers
+    if [ $CLEAR_QUEUES -eq 1 ]; then
+        resolve_targets
+        clear_queues
+        exit $?
+    fi
     setup_bundle
     resolve_targets
     load_compose

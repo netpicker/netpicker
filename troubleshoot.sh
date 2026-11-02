@@ -792,21 +792,107 @@ except Exception as exc:
 EOF
 
 # Ask the celery workers on one broker database what they are doing.
-# Args: redis host:port, database, separator label, timeout.
-# Output: W<TAB>worker<TAB>concurrency<TAB>active<TAB>reserved<TAB>scheduled<TAB>queues
+# Args: redis host:port, database, separator label, timeout, long task age.
+# Output: W<TAB>worker<TAB>concurrency<TAB>active<TAB>reserved<TAB>scheduled<TAB>
+#           active tasks running longer than the long task age<TAB>
+#           age in seconds of the oldest active task (-1 if none)<TAB>its task (- if none)<TAB>queues
+#         T<TAB>worker<TAB>age in seconds (-1 if not started yet)<TAB>task<TAB>task id<TAB>pid<TAB>
+#           device id of a policy run (- if none)<TAB>summary of the arguments
+#           for every active task, the oldest first
 #         or E<TAB>error
 IFS= read -r -d '' PY_INSPECT <<'EOF'
+import base64
+import json
 import os
 import sys
+import time
 import warnings
+import zlib
 
 warnings.simplefilter("ignore")
+
+# The arguments of a task to show, also when they are in a plan (JSON, maybe
+# in zlib-compressed base64) in the arguments. Only these: the others hold API
+# tokens, device credentials and configs.
+SHOW = {"tenant": "tenant", "initiator": "initiator", "batch_id": "batch",
+        "policies": "policies", "rules": "rules", "agent_id": "agent"}
+
+
+def parse(s):
+    if s[:1] not in "[{" and ":" not in s:
+        try:
+            b = base64.b64decode(s, validate=True)
+            try:
+                b = zlib.decompress(b)
+            except zlib.error:
+                pass
+            s = b.decode()
+        except ValueError:
+            return None
+    try:
+        return json.loads(s) if s[:1] in "[{" else None
+    except ValueError:
+        return None
+
+
+# collect the arguments in SHOW into found and the device addresses into ips
+def collect(v, found, ips, depth=0):
+    if depth > 8:
+        return
+    if isinstance(v, str):
+        v = parse(v)
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if k in ("ipaddress", "ipaddresses"):
+                for ip in x if isinstance(x, list) else [x]:
+                    if isinstance(ip, str) and ip not in ips:
+                        ips.append(ip)
+            elif k in SHOW:
+                if k not in found and x and isinstance(x, (str, int, list)):
+                    found[k] = ", ".join(map(str, x)) if isinstance(x, list) else str(x)
+            else:
+                collect(x, found, ips, depth + 1)
+    elif isinstance(v, list):
+        for x in v:
+            collect(x, found, ips, depth + 1)
+
+
+def summary(task):
+    found, ips = {}, []
+    collect(task.get("kwargs"), found, ips)
+    collect(task.get("args"), found, ips)
+    parts = []
+    if ips:
+        parts.append("device%s %s%s" % ("s" if len(ips) > 1 else "", ", ".join(ips[:3]),
+                                         " and %d more" % (len(ips) - 3) if len(ips) > 3 else ""))
+    parts += ["%s %s" % (SHOW[k], found[k]) for k in SHOW if k in found]
+    return " ".join("; ".join(parts).split())[:240]
+
+
+# the id of the device of a policy run: an int or a shortid
+def device_id(task):
+    if "exec_rules" not in (task.get("name") or ""):
+        return "-"
+    kwargs, args = task.get("kwargs") or {}, task.get("args") or []
+    v = kwargs.get("id") if isinstance(kwargs, dict) else None
+    if v is None and args:
+        v = args[0]
+    try:
+        if str(v).isdigit():
+            return str(int(v))
+        from app.utils import shortid
+        return str(int(shortid.decode(v)))
+    except Exception:
+        return "-"
+
+
 try:
     from urllib.parse import quote
 
     from celery import Celery
 
     hostport, db, sep, timeout = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
+    long_age = float(sys.argv[5])
     password = os.environ.get("NP_REDIS_PASSWORD") or ""
     auth = ":%s@" % quote(password, safe="") if password else ""
     app = Celery(broker="redis://%s%s/%s" % (auth, hostport, db))
@@ -823,13 +909,23 @@ except Exception as exc:
     print("E\t%s" % exc)
     sys.exit(0)
 
+now = time.time()
 for worker in sorted(set(queues) | set(stats)):
     pool = (stats.get(worker) or {}).get("pool") or {}
     names = ",".join(q.get("name", "") for q in queues.get(worker) or [])
-    print("W\t%s\t%s\t%d\t%d\t%d\t%s" % (
+    # time_start is the epoch time the pool started the task, None before that
+    tasks = sorted(active.get(worker) or [], key=lambda t: t.get("time_start") or now)
+    ages = [max(0.0, now - t["time_start"]) if t.get("time_start") else -1 for t in tasks]
+    oldest = (tasks[0].get("name") or "?") if ages and ages[0] >= 0 else "-"
+    print("W\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s" % (
         worker, pool.get("max-concurrency", 0),
-        len(active.get(worker) or []), len(reserved.get(worker) or []),
-        len(scheduled.get(worker) or []), names))
+        len(tasks), len(reserved.get(worker) or []),
+        len(scheduled.get(worker) or []),
+        sum(1 for age in ages if age > long_age), ages[0] if ages else -1, oldest, names))
+    for task, age in zip(tasks, ages):
+        print("T\t%s\t%d\t%s\t%s\t%s\t%s\t%s" % (
+            worker, age, task.get("name") or "?", task.get("id") or "-",
+            task.get("worker_pid") or "-", device_id(task), summary(task)))
 EOF
 
 # Run the query in argv[1] with the database settings of the api, print the
@@ -1998,6 +2094,29 @@ percent_ge() {
     awk -v v="$1" -v l="$2" 'BEGIN { exit !(v + 0 >= l + 0) }'
 }
 
+# warn_cpu MESSAGE USED: warn MESSAGE about a host without CPU to spare, with
+# the containers that use it, from all containers on the host and not only
+# this stack; USED is the CPU in use on the host in percent of one CPU, the
+# unit of docker stats
+warn_cpu() {
+    local stats total
+    if [ -n "${DOCKER_HOST:-}" ] ||
+        ! stats=$(docker stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}' 2>/dev/null) ||
+        [ -z "$stats" ]; then
+        warn "$1"
+        return
+    fi
+    total=$(printf '%s\n' "$stats" | awk -F'|' '{ s += $2 } END { printf "%d\n", s }')
+    if [ $((total * 2)) -lt "$2" ]; then
+        warn "$1; the containers use only ${total}% of the ${2}% in use (100% is one CPU), the rest goes to processes outside Docker: see 'top'"
+    else
+        warn "$1; most CPU (100% is one CPU): $(printf '%s\n' "$stats" | awk -F'|' '{ print $1 "|" $2 + 0 "|" $2 }' | top3)"
+    fi
+    detail "the containers using 1% CPU or more (docker stats --no-stream):"
+    printf '%s\n' "$stats" | awk -F'|' '$2 + 0 >= 1 { print $2 + 0 "|" $1 "|" $2 "|" $3 }' | sort -t'|' -k1,1gr |
+        awk -F'|' '{ printf "  %-28s %7s CPU, %s memory\n", $2, $3, $4 }' | details
+}
+
 check_host() {
     local up ncpu load1 load5 load15 busy iowait steal msg total avail pct swap_total swap_free oom
     section "Host resources"
@@ -2031,7 +2150,7 @@ EOF
     if [ -n "$busy" ]; then
         msg="CPU ${busy}% busy, ${iowait}% waiting for disk I/O, ${steal}% stolen by the hypervisor (1s sample)"
         if [ "$busy" -ge "$CPU_WARN" ]; then
-            warn "$msg; the host has no CPU to spare"
+            warn_cpu "$msg; the host has no CPU to spare" $((busy * ncpu))
         elif [ "$iowait" -ge 20 ]; then
             warn "$msg; the disk is too slow for the load"
         elif [ "$steal" -ge 10 ]; then
@@ -3191,7 +3310,7 @@ inspect_workers() {
         sep=$(printf '%s\n' "$SNAP1" | awk -F'\t' -v d="$db" '$1 == d && $2 == "Q" { print $4; exit }')
         printf '%s' "$PY_INSPECT" |
             NP_REDIS_PASSWORD=$REDIS_PW docker exec -i -e NP_REDIS_PASSWORD "$INSPECT_C" \
-                python3 - "$REDIS_HP" "$db" "$sep" "$INSPECT_TIMEOUT" >"$WORK/inspect.$db" 2>&1 &
+                python3 - "$REDIS_HP" "$db" "$sep" "$INSPECT_TIMEOUT" "$TASK_AGE" >"$WORK/inspect.$db" 2>&1 &
     done
     wait
 }
@@ -3209,8 +3328,35 @@ mark_busy() {
     esac
 }
 
+# device_ips FILE: "id<TAB>address" lines for the devices of the policy runs
+# in the inspect output FILE, from the database
+device_ips() {
+    local ids
+    ids=$(awk -F'\t' '$1 == "T" && $7 ~ /^[0-9]+$/ && !seen[$7]++ { printf "%s%s", (n++ ? "," : ""), $7 }' "$1")
+    [ -n "$ids" ] || return 0
+    db_query "SELECT id, ipaddress FROM device WHERE id IN ($ids)" 2>/dev/null | grep "^[0-9][0-9]*$TAB"
+}
+
+# report_tasks FILE WORKER DEVICES: the active tasks of WORKER in the inspect
+# output FILE, the oldest first; DEVICES are the device_ips lines
+report_tasks() {
+    local max=5 n age name id pid dev summary ip dur
+    [ $VERBOSE -eq 0 ] || max=25
+    n=$(awk -F'\t' -v w="$2" '$1 == "T" && $2 == w { n++ } END { print n + 0 }' "$1")
+    awk -F'\t' -v w="$2" '$1 == "T" && $2 == w' "$1" | head -n "$max" |
+        while IFS="$TAB" read -r _ _ age name id pid dev summary; do
+            if [ "$dev" != - ]; then
+                ip=$(printf '%s\n' "$3" | awk -F'\t' -v d="$dev" '$1 == d { print $2; exit }')
+                summary="device ${ip:-id $dev}${summary:+; $summary}"
+            fi
+            if [ "$age" -ge 0 ]; then dur=$(human_duration "$age"); else dur="starting"; fi
+            detail "$(printf '%-8s' "$dur") $name${summary:+: $summary} (pid $pid, task id $id)"
+        done
+    [ "$n" -le "$max" ] || detail "... and $((n - max)) more"
+}
+
 report_workers() {
-    local db f worker conc act res sch queues svc c host
+    local db f worker conc act res sch long age task queues svc c host msg devices
     for db in $BROKER_DBS; do
         f="$WORK/inspect.$db"
         if [ -z "$INSPECT_C" ]; then
@@ -3232,11 +3378,20 @@ report_workers() {
             fi
             continue
         fi
-        while IFS="$TAB" read -r _ worker conc act res sch queues; do
+        devices=$(device_ips "$f")
+        while IFS="$TAB" read -r _ worker conc act res sch long age task queues; do
             svc=$(host_service "${worker#*@}")
             [ "${act:-0}" -eq 0 ] || mark_busy "$svc"
             if [ -n "$svc" ]; then svc="$svc ($worker)"; else svc="$worker (not in this stack)"; fi
-            pass "db$db worker $svc: $act/$conc busy, $res reserved, $sch scheduled; queues: $(printf '%s' "$queues" | sed 's/,/, /g')"
+            msg="db$db worker $svc: $act/$conc busy"
+            [ "$age" -lt 0 ] || msg="$msg (the longest for $(human_duration "$age"): $task)"
+            msg="$msg, $res reserved, $sch scheduled; queues: $(printf '%s' "$queues" | sed 's/,/, /g')"
+            if [ "$long" -gt 0 ]; then
+                warn "$msg; $long task(s) running for over $(human_duration "$TASK_AGE"), it may be stuck on them"
+            else
+                pass "$msg"
+            fi
+            [ "$act" -eq 0 ] || report_tasks "$f" "$worker" "$devices"
         done <<EOF
 $(grep "^W$TAB" "$f")
 EOF
@@ -3256,7 +3411,7 @@ EOF
 }
 
 report_queues() {
-    local db q n1 n2 ncons conc active empty f u1 count age task rkey held orphans w
+    local db q n1 n2 ncons conc active long oldest empty f u1 count age task rkey held orphans w
     for db in $BROKER_DBS; do
         f="$WORK/inspect.$db"
         [ -f "$f" ] || : >"$f"
@@ -3265,8 +3420,10 @@ report_queues() {
             n1=$(printf '%s\n' "$SNAP1" | awk -F'\t' -v d="$db" -v q="$q" '$1 == d && $2 == "Q" && $3 == q { print $5; exit }')
             n2=$(printf '%s\n' "$SNAP2" | awk -F'\t' -v d="$db" -v q="$q" '$1 == d && $2 == "Q" && $3 == q { print $5; exit }')
             n1=${n1:-0}
-            read -r ncons conc active <<EOF
-$(awk -F'\t' -v q="$q" '$1 == "W" { n = split($7, a, ","); for (i = 1; i <= n; i++) if (a[i] == q) { c++; s += $3; b += $4 } } END { print c + 0, s + 0, b + 0 }' "$f")
+            # consumers, their slots, busy slots, slots busy for longer than
+            # TASK_AGE and the age of the oldest active task
+            read -r ncons conc active long oldest <<EOF
+$(awk -F'\t' -v q="$q" '$1 == "W" { n = split($10, a, ","); for (i = 1; i <= n; i++) if (a[i] == q) { c++; s += $3; b += $4; l += $7; if ($8 > o) o = $8 } } END { print c + 0, s + 0, b + 0, l + 0, o + 0 }' "$f")
 EOF
             if [ "$n2" -eq 0 ]; then
                 empty="$empty $q"
@@ -3281,9 +3438,11 @@ EOF
                 esac
             elif [ "$n2" -lt "$n1" ]; then
                 pass "db$db queue $q: draining, $n1 -> $n2 message(s) in ${ELAPSED}s by $ncons worker(s)"
-                for w in $(awk -F'\t' -v q="$q" '$1 == "W" { n = split($7, a, ","); for (i = 1; i <= n; i++) if (a[i] == q) print $2 }' "$f"); do
+                for w in $(awk -F'\t' -v q="$q" '$1 == "W" { n = split($10, a, ","); for (i = 1; i <= n; i++) if (a[i] == q) print $2 }' "$f"); do
                     mark_busy "$(host_service "${w#*@}")"
                 done
+            elif [ "$conc" -gt 0 ] && [ "$long" -ge "$conc" ]; then
+                fail "db$db queue $q: backlog of $n2 message(s) ($n1 -> $n2 in ${ELAPSED}s); all $conc worker slot(s) are held by tasks running for over $(human_duration "$TASK_AGE") (the longest for $(human_duration "$oldest")), so it is stuck until they finish; see the workers above"
             elif [ "$conc" -gt 0 ] && [ "$active" -ge "$conc" ]; then
                 warn "db$db queue $q: backlog of $n2 message(s) ($n1 -> $n2 in ${ELAPSED}s); all $conc worker slot(s) are busy, so it is slow rather than stuck"
             else
@@ -3751,7 +3910,7 @@ EOF
         echo; echo "# queues after ${ELAPSED:-0}s"; printf '%s\n' "$SNAP2"
         for f in "$WORK"/inspect.*; do
             [ -f "$f" ] || continue
-            echo; echo "# workers on redis db ${f##*.} (W, worker, concurrency, active, reserved, scheduled, queues)"
+            echo; echo "# workers on redis db ${f##*.} (W, worker, concurrency, active, reserved, scheduled, active over ${TASK_AGE}s, oldest active age, its task, queues / T, worker, age, task, task id, pid, device id, arguments)"
             cat "$f"
         done
     } >"$BUNDLE_DIR/redis.txt" 2>&1

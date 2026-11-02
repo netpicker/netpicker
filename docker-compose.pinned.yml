@@ -2,13 +2,12 @@ x-config-s3: &config_s3
   S3_SERVICE: minio:9000
   S3_SECRET_ACCESS_KEY: "minio-S3cret-key.!"
 
-
 x-api: &api_common_no_deps
-  image: "netpicker/api:2.8.1"
+  image: "netpicker/api:2.8.2-rc"
 
   environment:
     COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
-    alembic_version: "c8b7d285bc97"
+    alembic_version: "3745227835c3"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
@@ -43,13 +42,13 @@ x-api-deps: &api_common
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:2.8.1"
+    image: "netpicker/agent:2.8.2-rc"
     container_name: agent
     labels:
       netpicker.io: service
       service.netpicker.io: agent
     environment:
-      CLI_PROXY_ADDR: '0.0.0.0'
+      CLI_PROXY_ADDR: "0.0.0.0"
       SHARED_SSH_TTL: 180
       NO_PROXY: "api,frontend"
     volumes:
@@ -74,12 +73,17 @@ services:
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/api/v1/status').raise_for_status()"]
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import requests; requests.get('http://localhost:8000/api/v1/status').raise_for_status()",
+        ]
       start_period: 60s
       interval: 60s
       retries: 5
       timeout: 10s
-
 
   cadvisor:
     image: ghcr.io/google/cadvisor:latest
@@ -101,7 +105,6 @@ services:
     mem_limit: 256m
     mem_reservation: 64m
     read_only: true
-
 
   celery:
     <<: *api_common
@@ -134,7 +137,7 @@ services:
     environment:
       <<: *config_s3
       CELERY_QUEUES: config_commit
-      CELERY_CONCURRENCY: 1
+      CELERY_CONCURRENCY: 2
       WITHOUT_BEAT: 1
     healthcheck:
       test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2"]
@@ -159,7 +162,6 @@ services:
       retries: 5
       start_period: 80s
 
-
   db_migration:
     <<: *api_common_no_deps
     command: /db-migrate
@@ -168,9 +170,8 @@ services:
       db:
         condition: service_healthy
 
-
   frontend:
-    image: "netpicker/tester-frontend:2.8.1"
+    image: "netpicker/tester-frontend:2.8.2-rc"
     container_name: frontend
     labels:
       netpicker.io: service
@@ -189,16 +190,15 @@ services:
     depends_on:
       - api
 
-
   gitd:
-    image: "netpicker/gitd:2.8.1"
+    image: "netpicker/gitd:2.8.2-rc"
     container_name: gitd
     labels:
       netpicker.io: service
       service.netpicker.io: gitd
     restart: always
     #ports:
-      #- 9418:9418
+    #- 9418:9418
     volumes:
       - git:/git
     healthcheck:
@@ -206,9 +206,8 @@ services:
       start_period: 15s
       interval: 30s
 
-
   gitdctrl:
-    image: "netpicker/gitdctrl:2.8.1"
+    image: "netpicker/gitdctrl:2.8.2-rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -221,9 +220,8 @@ services:
       interval: 30s
     restart: always
 
-
   kibbitzer:
-    image: "netpicker/kibbitzer:2.8.1"
+    image: "netpicker/kibbitzer:2.8.2-rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -233,14 +231,14 @@ services:
       SHENV_API_URL: http://api:8000
       SHENV_API_TIMEOUT: 30
       SHENV_PRIVILEGED_PLATFORMS: "gigamon_gigavue arista_eos"
-      SHENV_SHOW_RUN_aruba_os: 'show configuration'
-      SHENV_SHOW_RUN_corvil: 'show config'
-      SHENV_SHOW_RUN_gigamon: 'show running'
-      SHENV_SHOW_RUN_meinberg: 'generate_config_backup && cat /var/tmp/lantime_config.backup'
+      SHENV_SHOW_RUN_aruba_os: "show configuration"
+      SHENV_SHOW_RUN_corvil: "show config"
+      SHENV_SHOW_RUN_gigamon: "show running"
+      SHENV_SHOW_RUN_meinberg: "generate_config_backup && cat /var/tmp/lantime_config.backup"
       SHENV_SHOW_RUN_mikrotik_routeros: "export"
-      SHENV_SHOW_RUN_nokia_srl: 'info'
+      SHENV_SHOW_RUN_nokia_srl: "info"
       SHENV_SHOW_RUN_paloalto_panos: "show config running"
-      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: 'export show-sensitive'
+      SHENV_TAG_SHOW_RUN_mikrotik_routeros_v7: "export show-sensitive"
     healthcheck:
       test: echo "ping Mac\n" | nc -v 127.0.0.1 9696
       start_period: 15s
@@ -281,12 +279,11 @@ services:
       netpicker.io: service
     volumes:
       - redis:/data
-    command: '--save 60 1 --loglevel warning'
+    command: "--save 60 1 --loglevel warning"
     restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 60s
-
 
   swagger:
     image: swaggerapi/swagger-ui
@@ -304,9 +301,8 @@ services:
       retries: 2
       start_period: 10s
 
-
   syslog-ng:
-    image: "netpicker/syslog-ng:2.8.1"
+    image: "netpicker/syslog-ng:2.8.2-rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service
@@ -326,7 +322,6 @@ services:
       retries: 3
     depends_on:
       - agent
-
 
 volumes:
   config:

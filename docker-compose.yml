@@ -3,15 +3,17 @@ x-config-s3: &config_s3
   S3_SECRET_ACCESS_KEY: "minio-S3cret-key.!"
 
 x-api: &api_common_no_deps
-  image: "netpicker/api:latest"
+  image: "netpicker/api:rc"
+
   environment:
     COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
-    alembic_version: "head"
+    alembic_version: "3745227835c3"
     CLI_PROXY_HOST: agent
     LOG_LEVEL: INFO
     UVICORN_ROOT_PATH: /
     PROXY_SSL_VERIFY: 0
     <<: *config_s3
+
   # Set this to the GID of the docker group on the host so the api container
   # can access /var/run/docker.sock. Find it with: getent group docker | cut -d: -f3
   # (on macOS: stat -f '%g' /var/run/docker.sock)
@@ -40,7 +42,7 @@ x-api-deps: &api_common
 services:
   agent:
     hostname: agent
-    image: "netpicker/agent:latest"
+    image: "netpicker/agent:rc"
     container_name: agent
     labels:
       netpicker.io: service
@@ -67,9 +69,9 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: api
+    restart: always
     ports:
       - "8000:8000"
-    restart: always
     healthcheck:
       test:
         [
@@ -113,14 +115,11 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: celery
-    command: /run-celery
     restart: always
+    command: /run-celery
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2",
-        ]
+      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2"]
+      # :timeout: 4s
       start_period: 15s
       interval: 30s
 
@@ -133,19 +132,16 @@ services:
     labels:
       netpicker.io: service
       service.netpicker.io: committer
+    restart: always
     command: /run-celery
     environment:
       <<: *config_s3
       CELERY_QUEUES: config_commit
-      CELERY_CONCURRENCY: 1
+      CELERY_CONCURRENCY: 2
       WITHOUT_BEAT: 1
-    restart: always
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2",
-        ]
+      test: ["CMD-SHELL", "CELERY_BROKER_URL=redis://redis celery inspect ping -t 2"]
+      # timeout: 4s
       start_period: 15s
       interval: 30s
 
@@ -175,38 +171,34 @@ services:
         condition: service_healthy
 
   frontend:
-    image: "netpicker/tester-frontend:latest"
+    image: "netpicker/tester-frontend:rc"
     container_name: frontend
     labels:
       netpicker.io: service
       service.netpicker.io: front-end
-    ports:
-      - "80:80"
-    volumes:
-      - git:/git
     restart: always
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -q -T 1 -O /dev/null http://127.0.0.1/health || exit 1",
-        ]
+      test: ["CMD-SHELL", "wget -q -T 1 -O /dev/null http://127.0.0.1/health || exit 1"]
       interval: 30s
       timeout: 2s
       retries: 2
       start_period: 10s
+    ports:
+      - "80:80"
+    volumes:
+      - git:/git
     depends_on:
       - api
 
   gitd:
-    image: "netpicker/gitd:latest"
+    image: "netpicker/gitd:rc"
     container_name: gitd
     labels:
       netpicker.io: service
       service.netpicker.io: gitd
+    restart: always
     #ports:
     #- 9418:9418
-    restart: always
     volumes:
       - git:/git
     healthcheck:
@@ -215,7 +207,7 @@ services:
       interval: 30s
 
   gitdctrl:
-    image: "netpicker/gitdctrl:latest"
+    image: "netpicker/gitdctrl:rc"
     container_name: gitdctrl
     labels:
       netpicker.io: service
@@ -229,7 +221,7 @@ services:
     restart: always
 
   kibbitzer:
-    image: "netpicker/kibbitzer:latest"
+    image: "netpicker/kibbitzer:rc"
     container_name: kibbitzer
     labels:
       netpicker.io: service
@@ -254,8 +246,8 @@ services:
     volumes:
       - secret:/run/secrets
       - transferium:/transferium
-      - dc-vol:/dc-vol
       - kibbitzer:/celery-worker
+      - dc-vol:/dc-vol
       - ./textfsm:/textfsm
     restart: always
     depends_on:
@@ -303,18 +295,14 @@ services:
     depends_on:
       - api
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -q -T 1 -O /dev/null http://127.0.0.1:8080 || exit 1",
-        ]
+      test: ["CMD-SHELL", "wget -q -T 1 -O /dev/null http://127.0.0.1:8080 || exit 1"]
       interval: 60s
       timeout: 2s
       retries: 2
       start_period: 10s
 
   syslog-ng:
-    image: "netpicker/syslog-ng:latest"
+    image: "netpicker/syslog-ng:rc"
     container_name: syslog-ng
     labels:
       netpicker.io: service
@@ -336,6 +324,7 @@ services:
       - agent
 
 volumes:
+  config:
   dc-vol:
   git:
   kibbitzer:

@@ -54,6 +54,14 @@ killed, and refuses to work in the repo until the file is removed, so nothing
 commits the files there. It removes the locks older than 10 minutes, then
 resets the repo, whatever the age of its files.
 
+With --terminate-task it terminates the given running celery tasks instead,
+after it showed them and asked for confirmation: their workers kill the
+processes that run them, with SIGTERM and then SIGKILL, and the tasks do not
+run again. Use it for the tasks that the task queue check reports as running
+for longer than --task-age, with the command it gives: a backup or policy run
+that hangs holds its worker slot until it is terminated. A worker that does
+not answer control commands cannot terminate its tasks; restart it instead.
+
 Options:
   -p, --project NAME     Docker Compose project name (default: auto-detect)
   -s, --since DURATION   how far back to scan the logs, in "docker logs --since"
@@ -73,13 +81,17 @@ Options:
       --reset-workdir    discard the uncommitted files and stale git locks left
                          behind in the git repos of the policy workdir with git
                          reset --hard and git clean, then exit; runs no checks
-  -y, --yes              clear the queues or reset the repos without asking for
-                         confirmation
+      --terminate-task ID
+                         terminate the running celery task with task id ID,
+                         then exit; can be given more than once; runs no checks
+  -y, --yes              clear the queues, reset the repos or terminate the
+                         tasks without asking for confirmation
       --no-color         disable colored output
   -h, --help             show this help
 
 Exit status: 0 all checks passed, 1 warnings, 2 failures, 3 could not run.
-With --clear-queues or --reset-workdir: 0 done or nothing to do, 3 could not run.
+With --clear-queues, --reset-workdir or --terminate-task: 0 done or nothing to
+do, 3 could not run.
 EOF
 }
 
@@ -93,6 +105,8 @@ VERBOSE=0
 COLOR=auto
 CLEAR_QUEUES=0
 RESET_WORKDIR=0
+# the task ids of --terminate-task, separated by spaces
+TERMINATE_IDS=
 ASSUME_YES=0
 # the -p option, repeated in the commands the advice gives
 PROJECT_OPT=
@@ -112,6 +126,8 @@ DEFAULT_AGENT_ID=DrkSpy
 AGENT_BEAT_AGE=60
 
 INSPECT_TIMEOUT=2
+# how long --terminate-task waits for a task to stop after SIGTERM, and after SIGKILL
+TERMINATE_WAIT=10
 BUNDLE_LOG_TAIL=20000
 
 # resource thresholds in percent
@@ -161,22 +177,36 @@ while [ $# -gt 0 ]; do
         -v | --verbose) VERBOSE=1; shift ;;
         --clear-queues) CLEAR_QUEUES=1; shift ;;
         --reset-workdir) RESET_WORKDIR=1; shift ;;
+        --terminate-task)
+            need_value "$@"
+            case "$2" in
+                *[!0-9A-Za-z._:-]*)
+                    echo "Option $1 needs a celery task id, got '$2'" >&2
+                    exit 3
+                    ;;
+            esac
+            TERMINATE_IDS="$TERMINATE_IDS $2"
+            shift 2
+            ;;
         -y | --yes) ASSUME_YES=1; shift ;;
         --no-color) COLOR=no; shift ;;
         -h | --help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 3 ;;
     esac
 done
-if [ $CLEAR_QUEUES -eq 1 ] && [ $RESET_WORKDIR -eq 1 ]; then
-    echo "Options --clear-queues and --reset-workdir do not go together" >&2
+# the options that do something instead of the checks go alone
+modes=
+[ $CLEAR_QUEUES -eq 0 ] || modes="$modes --clear-queues"
+[ $RESET_WORKDIR -eq 0 ] || modes="$modes --reset-workdir"
+[ -z "$TERMINATE_IDS" ] || modes="$modes --terminate-task"
+# shellcheck disable=SC2086
+set -- $modes
+if [ $# -gt 1 ]; then
+    echo "Options $1 and $2 do not go together" >&2
     exit 3
 fi
-if [ $CLEAR_QUEUES -eq 1 ] && [ $BUNDLE -eq 1 ]; then
-    echo "Options --clear-queues and --bundle do not go together" >&2
-    exit 3
-fi
-if [ $RESET_WORKDIR -eq 1 ] && [ $BUNDLE -eq 1 ]; then
-    echo "Options --reset-workdir and --bundle do not go together" >&2
+if [ $# -eq 1 ] && [ $BUNDLE -eq 1 ]; then
+    echo "Options $1 and --bundle do not go together" >&2
     exit 3
 fi
 
@@ -791,8 +821,34 @@ except Exception as exc:
     print("E\t%s" % exc)
 EOF
 
+# The start of the scripts that talk to the celery workers on one redis
+# database of the broker; celery_py runs them. Args: redis host:port,
+# database, separator label, then the args of the script.
+IFS= read -r -d '' PY_CELERY <<'EOF'
+import os
+import sys
+import warnings
+
+warnings.simplefilter("ignore")
+
+
+def celery_app():
+    from urllib.parse import quote
+
+    from celery import Celery
+
+    hostport, db, sep = sys.argv[1:4]
+    password = os.environ.get("NP_REDIS_PASSWORD") or ""
+    auth = ":%s@" % quote(password, safe="") if password else ""
+    app = Celery(broker="redis://%s%s/%s" % (auth, hostport, db))
+    if sep == "^":
+        # control messages with the wrong separator make the workers log errors
+        app.conf.broker_transport_options = {"sep": "^"}
+    return app
+EOF
+
 # Ask the celery workers on one broker database what they are doing.
-# Args: redis host:port, database, separator label, timeout, long task age.
+# Args, after those of PY_CELERY: timeout, long task age.
 # Output: W<TAB>worker<TAB>concurrency<TAB>active<TAB>reserved<TAB>scheduled<TAB>
 #           active tasks running longer than the long task age<TAB>
 #           age in seconds of the oldest active task (-1 if none)<TAB>its task (- if none)<TAB>queues
@@ -803,13 +859,9 @@ EOF
 IFS= read -r -d '' PY_INSPECT <<'EOF'
 import base64
 import json
-import os
 import sys
 import time
-import warnings
 import zlib
-
-warnings.simplefilter("ignore")
 
 # The arguments of a task to show, also when they are in a plan (JSON, maybe
 # in zlib-compressed base64) in the arguments. Only these: the others hold API
@@ -887,19 +939,8 @@ def device_id(task):
 
 
 try:
-    from urllib.parse import quote
-
-    from celery import Celery
-
-    hostport, db, sep, timeout = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
-    long_age = float(sys.argv[5])
-    password = os.environ.get("NP_REDIS_PASSWORD") or ""
-    auth = ":%s@" % quote(password, safe="") if password else ""
-    app = Celery(broker="redis://%s%s/%s" % (auth, hostport, db))
-    if sep == "^":
-        # control messages with the wrong separator make the workers log errors
-        app.conf.broker_transport_options = {"sep": "^"}
-    insp = app.control.inspect(timeout=timeout)
+    timeout, long_age = float(sys.argv[4]), float(sys.argv[5])
+    insp = celery_app().control.inspect(timeout=timeout)
     queues = insp.active_queues() or {}
     stats = insp.stats() or {}
     active = insp.active() or {}
@@ -926,6 +967,68 @@ for worker in sorted(set(queues) | set(stats)):
         print("T\t%s\t%d\t%s\t%s\t%s\t%s\t%s" % (
             worker, age, task.get("name") or "?", task.get("id") or "-",
             task.get("worker_pid") or "-", device_id(task), summary(task)))
+EOF
+
+# Terminate running tasks on one broker database: revoke them with terminate on
+# all its workers, so that the workers acknowledge their messages and kill the
+# pool processes that run them with SIGTERM. A worker forgets a task when it
+# sends the signal, whether the process dies or not: the task has stopped when
+# its process is gone from the pool of its worker, or runs another task.
+# Args, after those of PY_CELERY: timeout, wait, task ids.
+# Output: S<TAB>task id<TAB>stopped, revoked (before it started), not running,
+#           no answer (its worker stopped answering) or running (its process
+#           is still there)<TAB>worker<TAB>pid
+#         or E<TAB>error
+IFS= read -r -d '' PY_TERMINATE <<'EOF'
+import sys
+import time
+
+
+# {worker: {pid of a pool process: the id of the task it runs, or None}} of the
+# workers that answer
+def pools():
+    insp = app.control.inspect(timeout=timeout)
+    stats, active = insp.stats() or {}, insp.active() or {}
+    result = {}
+    for w, s in stats.items():
+        procs = dict.fromkeys(((s or {}).get("pool") or {}).get("processes") or [])
+        for t in active.get(w) or []:
+            if t.get("worker_pid") in procs:
+                procs[t["worker_pid"]] = t.get("id")
+        result[w] = procs
+    return result
+
+
+try:
+    timeout, wait, ids = float(sys.argv[4]), float(sys.argv[5]), sys.argv[6:]
+    app = celery_app()
+    active = app.control.inspect(timeout=timeout).active() or {}
+    where = {t.get("id"): (w, t.get("worker_pid"))
+             for w, tasks in active.items() for t in tasks or [] if t.get("id") in ids}
+    left = [i for i in ids if i in where]
+    if left:
+        app.control.revoke(left, terminate=True, signal="SIGTERM")
+    for i in ids:
+        if i not in where:
+            print("S\t%s\tnot running" % i)
+        elif where[i][1] is None:
+            print("S\t%s\trevoked\t%s\t-" % (i, where[i][0]))
+            left.remove(i)
+    now = {}
+    deadline = time.time() + wait
+    while left and time.time() < deadline:
+        time.sleep(1)
+        now = pools()
+        for i in list(left):
+            w, pid = where[i]
+            if w in now and now[w].get(pid, "gone") not in (None, i):
+                print("S\t%s\tstopped\t%s\t%s" % (i, w, pid), flush=True)
+                left.remove(i)
+    for i in left:
+        w, pid = where[i]
+        print("S\t%s\t%s\t%s\t%s" % (i, "running" if w in now else "no answer", w, pid))
+except Exception as exc:
+    print("E\t%s" % exc)
 EOF
 
 # Run the query in argv[1] with the database settings of the api, print the
@@ -3302,15 +3405,24 @@ queue_snapshot() {
     done
 }
 
+# celery_py SCRIPT DB ARG...: run the python SCRIPT after PY_CELERY in
+# INSPECT_C, for the workers on the redis database DB with the separator of
+# its queues in SNAP1
+celery_py() {
+    local script=$1 db=$2 sep
+    shift 2
+    sep=$(printf '%s\n' "$SNAP1" | awk -F'\t' -v d="$db" '$1 == d && $2 == "Q" { print $4; exit }')
+    printf '%s\n%s' "$PY_CELERY" "$script" |
+        NP_REDIS_PASSWORD=$REDIS_PW docker exec -i -e NP_REDIS_PASSWORD "$INSPECT_C" \
+            python3 - "$REDIS_HP" "$db" "$sep" "$@"
+}
+
 inspect_workers() {
-    local db sep
+    local db
     INSPECT_C=$(first_running celery committer api)
     [ -n "$INSPECT_C" ] || return 0
     for db in "$@"; do
-        sep=$(printf '%s\n' "$SNAP1" | awk -F'\t' -v d="$db" '$1 == d && $2 == "Q" { print $4; exit }')
-        printf '%s' "$PY_INSPECT" |
-            NP_REDIS_PASSWORD=$REDIS_PW docker exec -i -e NP_REDIS_PASSWORD "$INSPECT_C" \
-                python3 - "$REDIS_HP" "$db" "$sep" "$INSPECT_TIMEOUT" "$TASK_AGE" >"$WORK/inspect.$db" 2>&1 &
+        celery_py "$PY_INSPECT" "$db" "$INSPECT_TIMEOUT" "$TASK_AGE" >"$WORK/inspect.$db" 2>&1 &
     done
     wait
 }
@@ -3337,26 +3449,57 @@ device_ips() {
     db_query "SELECT id, ipaddress FROM device WHERE id IN ($ids)" 2>/dev/null | grep "^[0-9][0-9]*$TAB"
 }
 
+# task_text LINE DEVICES: a T line of the inspect output as text, with the
+# address of its device from DEVICES, the device_ips lines
+task_text() {
+    local age name id pid dev summary ip dur
+    IFS="$TAB" read -r _ _ age name id pid dev summary <<EOF
+$1
+EOF
+    if [ "$dev" != - ]; then
+        ip=$(printf '%s\n' "$2" | awk -F'\t' -v d="$dev" '$1 == d { print $2; exit }')
+        summary="device ${ip:-id $dev}${summary:+; $summary}"
+    fi
+    if [ "$age" -ge 0 ]; then dur=$(human_duration "$age"); else dur="starting"; fi
+    printf '%-8s %s%s (pid %s, task id %s)\n' "$dur" "$name" "${summary:+: $summary}" "$pid" "$id"
+}
+
 # report_tasks FILE WORKER DEVICES: the active tasks of WORKER in the inspect
-# output FILE, the oldest first; DEVICES are the device_ips lines
+# output FILE, the oldest first, and the command to terminate the ones running
+# for longer than TASK_AGE; DEVICES are the device_ips lines
 report_tasks() {
-    local max=5 n age name id pid dev summary ip dur
+    local max=5 n line ids
     [ $VERBOSE -eq 0 ] || max=25
     n=$(awk -F'\t' -v w="$2" '$1 == "T" && $2 == w { n++ } END { print n + 0 }' "$1")
-    awk -F'\t' -v w="$2" '$1 == "T" && $2 == w' "$1" | head -n "$max" |
-        while IFS="$TAB" read -r _ _ age name id pid dev summary; do
-            if [ "$dev" != - ]; then
-                ip=$(printf '%s\n' "$3" | awk -F'\t' -v d="$dev" '$1 == d { print $2; exit }')
-                summary="device ${ip:-id $dev}${summary:+; $summary}"
-            fi
-            if [ "$age" -ge 0 ]; then dur=$(human_duration "$age"); else dur="starting"; fi
-            detail "$(printf '%-8s' "$dur") $name${summary:+: $summary} (pid $pid, task id $id)"
-        done
+    awk -F'\t' -v w="$2" '$1 == "T" && $2 == w' "$1" | head -n "$max" | while IFS= read -r line; do
+        detail "$(task_text "$line" "$3")"
+    done
     [ "$n" -le "$max" ] || detail "... and $((n - max)) more"
+    ids=$(awk -F'\t' -v w="$2" -v a="$TASK_AGE" '$1 == "T" && $2 == w && $3 > a { printf " --terminate-task %s", $5 }' "$1")
+    [ -z "$ids" ] || detail "terminate the tasks running for over $(human_duration "$TASK_AGE") with '$SELF$PROJECT_OPT$ids'"
+}
+
+# silent_workers: "service container" of the running celery, committer and
+# kibbitzer containers whose worker is not in the inspect output
+silent_workers() {
+    local svc c host
+    for svc in celery committer kibbitzer; do
+        for c in $(svc_containers "$svc"); do
+            [ "$(ctr_field "$c" 3)" = running ] || continue
+            host=$(ctr_field "$c" 10)
+            # not cat | grep -q: with pipefail, cat killed by SIGPIPE after the match fails it
+            grep -q "@$host$TAB" "$WORK"/inspect.* 2>/dev/null || echo "$svc $c"
+        done
+    done
+}
+
+# what restarting a worker does to its tasks
+advice_restart() {
+    detail "Restarting a worker stops all its tasks; the ones still running stay in flight in redis and run again after the visibility timeout of $(human_duration "$VIS_TIMEOUT"), unless you clear the task queues with '$SELF$PROJECT_OPT --clear-queues' after the restart."
 }
 
 report_workers() {
-    local db f worker conc act res sch long age task queues svc c host msg devices
+    local db f worker conc act res sch long age task queues svc c msg devices
     for db in $BROKER_DBS; do
         f="$WORK/inspect.$db"
         if [ -z "$INSPECT_C" ]; then
@@ -3387,7 +3530,7 @@ report_workers() {
             [ "$age" -lt 0 ] || msg="$msg (the longest for $(human_duration "$age"): $task)"
             msg="$msg, $res reserved, $sch scheduled; queues: $(printf '%s' "$queues" | sed 's/,/, /g')"
             if [ "$long" -gt 0 ]; then
-                warn "$msg; $long task(s) running for over $(human_duration "$TASK_AGE"), it may be stuck on them"
+                warn "$msg; $long task(s) running for over $(human_duration "$TASK_AGE"), it may be stuck on them; the command to terminate them is below"
             else
                 pass "$msg"
             fi
@@ -3398,16 +3541,13 @@ EOF
     done
 
     [ -n "$INSPECT_C" ] || return 0
-    for svc in celery committer kibbitzer; do
-        for c in $(svc_containers "$svc"); do
-            [ "$(ctr_field "$c" 3)" = running ] || continue
-            host=$(ctr_field "$c" 10)
-            # not cat | grep -q: with pipefail, cat killed by SIGPIPE after the match fails it
-            if ! grep -q "@$host$TAB" "$WORK"/inspect.* 2>/dev/null; then
-                fail "$(pad "$svc") $c: its celery worker does not answer control commands; it may be hung or overloaded"
-            fi
-        done
-    done
+    while read -r svc c; do
+        [ -n "$c" ] || continue
+        fail "$(pad "$svc") $c: its celery worker does not answer control commands; it may be hung or overloaded; if it stays so, restart it with 'docker restart $c'"
+        advice_restart
+    done <<EOF
+$(silent_workers)
+EOF
 }
 
 report_queues() {
@@ -3721,23 +3861,32 @@ EOF
 # ---------------------------------------------------------------------------
 # --clear-queues
 
-# Delete the waiting and in-flight tasks of the celery queues in every redis
-# database, after listing them and asking for confirmation.
-clear_queues() {
-    local out dbs snap waiting inflight db cleared held rc=0 workers
-    section "Clear the redis task queues of compose project $PROJECT"
+# load_broker OPTION: the queues in SNAP1 and the redis databases with queues
+# in BROKER_DBS, from the redis of this stack, for OPTION; dies when redis
+# cannot be read
+load_broker() {
+    local out dbs
     if [ -z "$REDIS_C" ]; then
-        [ "${REDIS_HP%%:*}" = redis ] || die "redis is external ($REDIS_HP); --clear-queues needs the redis service of this stack"
+        [ "${REDIS_HP%%:*}" = redis ] || die "redis is external ($REDIS_HP); $1 needs the redis service of this stack"
         die "redis is not running"
     fi
     out=$(rcli PING 2>&1)
     [ "$out" = PONG ] || die "redis does not answer PING: $out"
     dbs=$(rcli INFO keyspace 2>&1 | tr -d '\r' | sed -n 's/^db\([0-9][0-9]*\):.*/\1/p')
     # shellcheck disable=SC2086
-    snap=$(queue_snapshot $dbs)
-    out=$(printf '%s\n' "$snap" | awk -F'\t' 'NF && $2 != "Q" && $2 != "U"' | head -n 1)
+    SNAP1=$(queue_snapshot $dbs)
+    out=$(printf '%s\n' "$SNAP1" | awk -F'\t' 'NF && $2 != "Q" && $2 != "U"' | head -n 1)
     [ -z "$out" ] || die "could not read the task queues from redis: $(printf '%s' "$out" | cut -f2-)"
-    BROKER_DBS=$(printf '%s\n' "$snap" | awk -F'\t' '$2 == "Q" { print $1 }' | sort -un)
+    BROKER_DBS=$(printf '%s\n' "$SNAP1" | awk -F'\t' '$2 == "Q" { print $1 }' | sort -un)
+}
+
+# Delete the waiting and in-flight tasks of the celery queues in every redis
+# database, after listing them and asking for confirmation.
+clear_queues() {
+    local out snap waiting inflight db cleared held rc=0 workers
+    section "Clear the redis task queues of compose project $PROJECT"
+    load_broker --clear-queues
+    snap=$SNAP1
     if [ -z "$BROKER_DBS" ]; then
         pass "no celery queues found in redis; nothing to clear"
         return 0
@@ -3782,6 +3931,112 @@ clear_queues() {
         workers=$(printf '%s\n' "$CTR" | awk -F'|' '($1 == "kibbitzer" || $1 == "celery" || $1 == "committer") && $3 == "running" { printf "%s ", $2 }')
         [ -z "$workers" ] || info "the workers may still run in-flight tasks they had taken; to drop those as well, restart them with 'docker restart ${workers% }'"
     fi
+    return $rc
+}
+
+# ---------------------------------------------------------------------------
+# --terminate-task
+
+# host_container HOSTNAME: the container with HOSTNAME
+host_container() {
+    printf '%s\n' "$CTR" | awk -F'|' -v h="$1" '$10 == h { print $2; exit }'
+}
+
+# kill_pid CONTAINER PID: kill the process PID in CONTAINER with SIGKILL; true
+# when it is gone within TERMINATE_WAIT seconds
+kill_pid() {
+    local i=0
+    case "$2" in '' | *[!0-9]*) return 1 ;; esac
+    # it may have exited meanwhile; whether it is gone is what counts
+    docker exec "$1" sh -c 'kill -KILL "$1"' sh "$2" </dev/null 2>/dev/null
+    # the process stays a zombie until its pool reaps it
+    while docker exec "$1" sh -c 'kill -0 "$1"' sh "$2" </dev/null 2>/dev/null; do
+        i=$((i + 1))
+        [ $i -lt "$TERMINATE_WAIT" ] || return 1
+        sleep 1
+    done
+}
+
+# Terminate the running celery tasks TERMINATE_IDS, after showing them and
+# asking for confirmation.
+terminate_tasks() {
+    local id db line targets= t ids n=0 missing=0 silent out status worker c policy_runs=0 rc=0
+    section "Terminate celery tasks of compose project $PROJECT"
+    load_broker --terminate-task
+    [ -n "$BROKER_DBS" ] || die "no celery queues found in redis; the workers have never connected"
+    # shellcheck disable=SC2086
+    inspect_workers $BROKER_DBS
+    [ -n "$INSPECT_C" ] || die "no api, celery or committer container runs to reach the workers with"
+
+    # the tasks to terminate, as db/id
+    for id in $TERMINATE_IDS; do
+        case " $targets" in *"/$id "*) continue ;; esac
+        line=
+        for db in $BROKER_DBS; do
+            line=$(awk -F'\t' -v id="$id" '$1 == "T" && $5 == id { print; exit }' "$WORK/inspect.$db")
+            [ -z "$line" ] || break
+        done
+        if [ -z "$line" ]; then
+            warn "task $id is not running in a worker that answers; it has finished, or the task id is wrong"
+            missing=1
+            continue
+        fi
+        info "db$db worker $(printf '%s\n' "$line" | cut -f2) runs:"
+        detail "$(task_text "$line" "$(device_ips "$WORK/inspect.$db")")"
+        case "$(printf '%s\n' "$line" | cut -f4)" in *exec_rules*) policy_runs=1 ;; esac
+        targets="$targets$db/$id "
+        n=$((n + 1))
+    done
+    silent=$(silent_workers)
+    if [ $missing -eq 1 ] && [ -n "$silent" ]; then
+        info "the workers of $(printf '%s\n' "$silent" | awk '{ printf "%s%s", (n++ ? ", " : ""), $2 }') do not answer control commands, so they cannot terminate tasks; if a task runs there, restart them with 'docker restart $(printf '%s\n' "$silent" | awk '{ printf "%s%s", (n++ ? " " : ""), $2 }')'"
+        advice_restart
+        rc=3
+    fi
+    [ $n -gt 0 ] || return $rc
+
+    [ $ASSUME_YES -eq 1 ] || [ -t 0 ] || die "not terminating the tasks without confirmation; add --yes to terminate them without asking"
+    if ! confirm "Terminate these $n task(s)? They stop now and do not run again."; then
+        say "Nothing terminated."
+        return $rc
+    fi
+
+    for db in $(for t in $targets; do echo "${t%%/*}"; done | sort -un); do
+        ids=$(for t in $targets; do [ "${t%%/*}" != "$db" ] || echo "${t#*/}"; done)
+        # shellcheck disable=SC2086
+        out=$(celery_py "$PY_TERMINATE" "$db" "$INSPECT_TIMEOUT" "$TERMINATE_WAIT" $ids 2>&1)
+        while IFS="$TAB" read -r _ id status worker pid; do
+            [ -n "$id" ] || continue
+            c=$(host_container "${worker#*@}")
+            case "$status" in
+                stopped) pass "task $id terminated" ;;
+                revoked) pass "task $id revoked; it had not started yet and will not" ;;
+                "not running") pass "task $id finished meanwhile" ;;
+                running)
+                    # the worker has forgotten the task, so it cannot signal it again
+                    if [ -n "$c" ] && kill_pid "$c" "$pid"; then
+                        pass "task $id killed with SIGKILL; its process $pid in $c ignored SIGTERM"
+                    else
+                        fail "the process $pid of task $id in ${c:-the container of $worker} is still there after SIGTERM${c:+ and SIGKILL}; restart the worker with 'docker restart ${c:-${worker#*@}}'"
+                        advice_restart
+                        rc=3
+                    fi
+                    ;;
+                *)
+                    fail "the worker $worker of task $id stopped answering control commands; rerun $SELF$PROJECT_OPT to see whether the task still runs, or restart the worker with 'docker restart ${c:-${worker#*@}}'"
+                    rc=3
+                    ;;
+            esac
+        done <<EOF
+$(printf '%s\n' "$out" | grep "^S$TAB")
+EOF
+        if ! printf '%s\n' "$out" | grep -q "^S$TAB" || printf '%s\n' "$out" | grep -q "^E$TAB"; then
+            fail "db$db: could not terminate the tasks: $(printf '%s\n' "$out" | grep "^E$TAB" | cut -f2- | grep . || printf '%s\n' "$out" | tail -n 1)"
+            rc=3
+        fi
+    done
+    [ $policy_runs -eq 0 ] ||
+        info "a terminated policy run stays started in the device events until the next policy run of its device"
     return $rc
 }
 
@@ -3982,6 +4237,11 @@ main() {
     if [ $RESET_WORKDIR -eq 1 ]; then
         resolve_targets
         reset_workdir
+        exit $?
+    fi
+    if [ -n "$TERMINATE_IDS" ]; then
+        resolve_targets
+        terminate_tasks
         exit $?
     fi
     setup_bundle

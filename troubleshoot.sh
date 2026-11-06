@@ -8,8 +8,9 @@
 # do to the stack and whether the containers match the compose files, that the
 # database is at the alembic revision the api image expects, that the
 # containers can reach each other, that the agents in the database are
-# connected and set up for the compose stack they run in, that the celery task
-# queues in redis are not stuck, that the git working copies in the policy
+# connected and set up for the compose stack they run in, that the agents can
+# upload the configs of their backups, that the celery task queues in redis are
+# not stuck, that the git working copies in the policy
 # workdir have no old uncommitted files or stale locks, how the last backup and
 # policy run of the devices went and that the container logs are free of errors.
 #
@@ -34,7 +35,9 @@ containers with their health checks and resource limits, local changes to
 this repo and whether the containers match the compose files, the database
 migration (alembic) revision, connectivity between containers, the agents
 (connected, in this compose stack or elsewhere, sharing the redis and
-kibbitzer of the stack), the redis task queues, uncommitted files in the git
+kibbitzer of the stack), the upload of the backed-up configs (the upload URL
+the api and celery give the agents, whether kibbitzer reaches it, failed
+uploads in its logs), the redis task queues, uncommitted files in the git
 repos of the policy workdir, the last backup and policy run of every device
 and errors in the container logs.
 
@@ -3382,6 +3385,7 @@ EOF
         esac
     done
 
+    REMOTE_AGENTS=${remote#, }
     if [ -n "$remote" ]; then
         info "agent(s) ${remote#, } run outside this compose stack, so this script cannot check their setup. An agent in another stack needs its own redis and kibbitzer in that stack; on its host, check that:"
         detail "- agent, kibbitzer and redis run together in that stack ('docker compose ps' there)"
@@ -3391,6 +3395,145 @@ EOF
         detail "- WS_ENDPOINT and SHENV_API_URL of the agent and SHENV_API_URL of kibbitzer reach this api"
         detail "- AGENT_ID of the agent is its id in Netpicker, and no other agent uses it"
     fi
+}
+
+# The kibbitzer of an agent uploads the configs of a backup straight to minio,
+# to the URL in the backup plan: the api (backups started by hand) and celery
+# (scheduled backups) put S3_ENDPOINT_URL there, or else http://S3_SERVICE,
+# http://minio:9000 by default, which resolves only in the stack of the api.
+# When the upload fails, the backup runs on the agent, but its configs never
+# reach Netpicker and its device event stays scheduled.
+REMOTE_AGENTS=
+UPLOAD_PROBLEM=0
+UPLOAD_SINCE=24h
+
+# PY_PLAN_URL: reads "<docker log time><TAB><plan>" of an rpc_run_backups
+# command on stdin, the plan base64 of zlib-compressed JSON.
+# Output: U<TAB>upload URL (- for none)<TAB>age in seconds, or E<TAB>error
+IFS= read -r -d '' PY_PLAN_URL <<'PYEOF'
+import base64, datetime, re, sys, time, zlib
+ts, _, plan = sys.stdin.read().partition("\t")
+plan = plan.strip()
+try:
+    text = plan if plan.startswith("{") else zlib.decompress(base64.b64decode(plan)).decode("utf-8", "replace")
+except Exception as exc:
+    print("E\tcannot decode the plan: %s" % exc)
+    sys.exit()
+m = re.search(r'"s3_url"\s*:\s*"([^"]*)"', text)
+t = datetime.datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+print("U\t%s\t%d" % (m.group(1) if m and m.group(1) else "-", max(0, time.time() - t.timestamp())))
+PYEOF
+
+# is_internal_host HOST: HOST is a name that resolves only in a docker network,
+# or the host itself
+is_internal_host() {
+    case "$1" in
+        localhost | 127.* | ::1) return 0 ;;
+        *.*) [ -n "$(stack_service "$1")" ] ;;
+        *) return 0 ;;
+    esac
+}
+
+check_backup_uploads() {
+    local svc c env set url host what urls n bad=0 ksvc kc line plan out rc kind s3 age errs last
+    section "Backup uploads"
+
+    # the upload URL that api and celery put in the backup plans
+    urls=$(for svc in api celery; do
+        c=$(svc_any "$svc")
+        [ -n "$c" ] || continue
+        env=$(ctr_env "$c")
+        set=$(env_get "$env" S3_ENDPOINT_URL)
+        url=$set
+        if [ -z "$url" ]; then
+            url=$(env_get "$env" S3_SERVICE)
+            url="http://${url:-minio:9000}"
+        fi
+        printf '%s\t%s\t%s\n' "$svc" "$url" "${set:--}"
+    done)
+    while IFS="$TAB" read -r svc url set; do
+        [ -n "$svc" ] || continue
+        case "$svc" in
+            api) what="backups started by hand" ;;
+            *) what="scheduled backups" ;;
+        esac
+        host=$(url_hostport "$url")
+        host=${host%:*}
+        if [ -n "$REMOTE_AGENTS" ] && is_internal_host "$host"; then
+            fail "$(pad "$svc") gives the agents upload URL $url for the $what$([ "$set" != - ] || echo " (S3_ENDPOINT_URL is not set)"), but $host resolves only in this stack: the agents outside it ($REMOTE_AGENTS) run these backups and cannot upload the configs, so the backups stay scheduled"
+            bad=1
+        else
+            pass "$(pad "$svc") gives the agents upload URL $url for the $what"
+        fi
+    done <<EOT
+$urls
+EOT
+    n=$(printf '%s\n' "$urls" | cut -f2 | sort -u | grep -c .)
+    if [ $bad -eq 1 ]; then
+        UPLOAD_PROBLEM=1
+        detail "Set S3_ENDPOINT_URL to a URL of minio that the hosts of these agents reach, under the environment of x-api in"
+        detail "docker-compose.override.yml so that api, celery and committer all get it, and run 'docker compose up -d'."
+    elif [ "$n" -gt 1 ]; then
+        warn "api and celery give the agents different upload URLs ($(printf '%s\n' "$urls" | cut -f2 | paste -sd, - | sed 's/,/ and /')): set the same S3_ENDPOINT_URL on both"
+    elif [ -n "$REMOTE_AGENTS" ]; then
+        detail "Run this script on the hosts of the agents outside this stack to check that their kibbitzer reaches it."
+    fi
+
+    # the upload URL in the last backup plan of each agent of this stack: can
+    # its kibbitzer reach it?
+    for svc in $AGENT_SVCS; do
+        c=$(svc_running "$svc")
+        [ -n "$c" ] || continue
+        ksvc=$(stack_service "$(agent_conf "$(stack_env "$svc")" BACKUP_SVC_ADDR)")
+        kc=
+        [ -z "$ksvc" ] || kc=$(svc_running "$ksvc")
+        [ -n "$kc" ] || continue
+        line=$(docker logs -t --since 168h "$c" 2>&1 | grep "received rpc_run_backups(" | tail -n 1)
+        if [ -z "$line" ]; then
+            info "$(pad "$svc") received no backups in the last 7 days"
+            continue
+        fi
+        plan=$(printf '%s\n' "$line" | sed -n "s/.* plan='\([^']*\)'.*/\1/p")
+        out=$(printf '%s\t%s' "${line%% *}" "$plan" | docker exec -i "$kc" python3 -c "$PY_PLAN_URL" 2>&1)
+        IFS="$TAB" read -r kind s3 age <<EOT
+$out
+EOT
+        if [ "$kind" != U ] || [ "$s3" = - ]; then
+            warn "$(pad "$svc") cannot read the upload URL from its last backup plan: $(printf '%s\n' "$out" | tail -n 1 | cut -f2-)"
+            continue
+        fi
+        out=$(probe "$kc" tcp "$(url_hostport "$s3")")
+        rc=$?
+        case $rc in
+            0) pass "$(pad "$ksvc") reaches upload URL $s3 of the last backup plan of $svc, $(human_duration "$age") ago" ;;
+            3) warn "$(pad "$ksvc") upload URL $s3 of the last backup plan of $svc: cannot test, $out" ;;
+            *)
+                fail "$(pad "$ksvc") cannot reach upload URL $s3 of the last backup plan of $svc, $(human_duration "$age") ago: $out; the backups run, but their configs never reach Netpicker, where they stay scheduled"
+                detail "The api and celery of the Netpicker server put S3_ENDPOINT_URL in the plans, or http://minio:9000 without it,"
+                detail "which resolves only in the stack of that server; set S3_ENDPOINT_URL there to a URL of minio this host reaches."
+                UPLOAD_PROBLEM=1
+                ;;
+        esac
+    done
+
+    # failed uploads in the logs of kibbitzer
+    for ksvc in $(printf '%s\n' "$STACK" | awk -F'\t' '$1 == "S" && $3 == "kibbitzer" { print $2 }'); do
+        kc=$(svc_running "$ksvc")
+        [ -n "$kc" ] || continue
+        errs=$(docker logs -t --since "$UPLOAD_SINCE" "$kc" 2>&1 | grep 'upload_configs [0-9]* (reason ')
+        if [ -z "$errs" ]; then
+            pass "$(pad "$ksvc") no failed config uploads in the last $UPLOAD_SINCE"
+            continue
+        fi
+        n=$(printf '%s\n' "$errs" | grep -c .)
+        last=$(printf '%s\n' "$errs" | tail -n 1 | cut -c1-16 | tr T ' ')
+        fail "$(pad "$ksvc") $n failed config upload attempt(s) in the last $UPLOAD_SINCE, the last at $last UTC: those backups ran, but their configs did not reach Netpicker"
+        printf '%s\n' "$errs" | sed -n 's/.*upload_configs [0-9]* (reason \(.*\))[[:space:]]*$/\1/p' |
+            sort | uniq -c | sort -rn | head -n 3 | while read -r n out; do
+                detail "$(printf '%4dx  %s' "$n" "$out")"
+            done
+        UPLOAD_PROBLEM=1
+    done
 }
 
 redis_info() {
@@ -3430,6 +3573,8 @@ inspect_workers() {
 # Did kibbitzer or committer have work while the queues were watched? The
 # device event check uses it to tell lost tasks from a long wait.
 QUEUES_WATCHED=0
+# waiting and in-flight tasks in the queues of the second snapshot
+QUEUED_TASKS=0
 WORKERS_BUSY=0
 WORKERS_UNKNOWN=0
 
@@ -3565,6 +3710,7 @@ report_queues() {
             read -r ncons conc active long oldest <<EOF
 $(awk -F'\t' -v q="$q" '$1 == "W" { n = split($10, a, ","); for (i = 1; i <= n; i++) if (a[i] == q) { c++; s += $3; b += $4; l += $7; if ($8 > o) o = $8 } } END { print c + 0, s + 0, b + 0, l + 0, o + 0 }' "$f")
 EOF
+            QUEUED_TASKS=$((QUEUED_TASKS + n2))
             if [ "$n2" -eq 0 ]; then
                 empty="$empty $q"
             elif [ "$ncons" -eq 0 ]; then
@@ -3597,6 +3743,7 @@ EOF
 $(printf '%s\n' "$SNAP2" | awk -F'\t' -v d="$db" '$1 == d && $2 == "U" { print $3 "\t" $4 "\t" $5 "\t" $6; exit }')
 EOF
         count=${count:-0}
+        QUEUED_TASKS=$((QUEUED_TASKS + count))
         [ "$count" -gt 0 ] || continue
         info "db$db: $count task(s) in flight, the oldest ${task:-?} (queue ${rkey:-?}) for $(human_duration "$age")"
         if [ "$age" -gt "$VIS_TIMEOUT" ]; then
@@ -3808,7 +3955,16 @@ EOF
         n=$(printf '%s\n' "$EVENTS" | awk -F'\t' -v e="$ev" '$1 == "X" && $3 == e && $4 == "scheduled" { n += $5 } END { print n + 0 }')
         [ "$n" -eq 0 ] || lost="$lost, $n $(event_label "$ev")(s)"
     done
-    if [ -n "$lost" ] && [ $QUEUES_WATCHED -eq 1 ] && [ $WORKERS_BUSY -eq 0 ] && [ $WORKERS_UNKNOWN -eq 0 ]; then
+    if [ -n "$lost" ] && [ $QUEUES_WATCHED -eq 1 ] && [ $WORKERS_BUSY -eq 0 ] && [ $WORKERS_UNKNOWN -eq 0 ] && [ "$QUEUED_TASKS" -eq 0 ]; then
+        # nothing to clear: an agent took the backups and the configs did
+        # not come back, or the tasks never reached redis
+        if [ $UPLOAD_PROBLEM -eq 1 ]; then
+            warn "${lost#, } scheduled over $(human_duration "$TASK_AGE") ago have not finished while the task queues are empty and kibbitzer and committer are idle: their configs did not reach Netpicker, see Backup uploads above"
+        else
+            warn "${lost#, } scheduled over $(human_duration "$TASK_AGE") ago have not finished while the task queues are empty and kibbitzer and committer are idle, so clearing the queues does not help: an agent ran them and could not upload the configs, or their tasks were lost before they reached redis"
+            [ -z "$REMOTE_AGENTS" ] || detail "On the hosts of the agents outside this stack, run this script and check 'docker logs kibbitzer' for upload_configs errors."
+        fi
+    elif [ -n "$lost" ] && [ $QUEUES_WATCHED -eq 1 ] && [ $WORKERS_BUSY -eq 0 ] && [ $WORKERS_UNKNOWN -eq 0 ]; then
         warn "${lost#, } scheduled over $(human_duration "$TASK_AGE") ago have not started and kibbitzer and committer are idle, so their tasks are lost or stuck; clear the task queues with '$SELF$PROJECT_OPT --clear-queues'"
         detail "This deletes all waiting and in-flight tasks from redis; the next scheduled backups and policy runs start afresh."
     fi
@@ -4091,10 +4247,12 @@ reset_workdir() {
 
 # mask secrets in environment variables, compose files (also in a git diff) and URLs
 redact() {
-    local words='(PASSWORD|PASSWD|SECRET|TOKEN|APIKEY|API_KEY|KEY|CREDENTIAL|password|passwd|secret|token|apikey|api_key|key|credential)'
+    local words='(PASSWORD|PASSWD|SECRET|TOKEN|APIKEY|API_KEY|KEY|CREDENTIAL|password|passwd|secret|token|apikey|api_key|key|credential|Password|Passwd|Secret|Token|ApiKey|Key|Credential)'
     sed -E \
         -e "s/([A-Za-z0-9_.:-]*$words[A-Za-z0-9_.:-]*=)[^\"]*/\1***/g" \
-        -e "s/^([+[:space:]-]*\"?[A-Za-z0-9_.:-]*$words[A-Za-z0-9_.:-]*\"?[[:space:]]*:[[:space:]]*).+$/\1***/" \
+        -e "s/^([+[:space:]-]*\"?[A-Za-z0-9_.-]*$words[A-Za-z0-9_.-]*\"?[[:space:]]*:[[:space:]]+)\"([^\"\\\\]|\\\\.)*\"/\1\"***\"/" \
+        -e "s/^([+[:space:]-]*\"?[A-Za-z0-9_.-]*$words[A-Za-z0-9_.-]*\"?[[:space:]]*:[[:space:]]+)[^\"[{[:space:]].*,$/\1\"***\",/" \
+        -e "s/^([+[:space:]-]*\"?[A-Za-z0-9_.-]*$words[A-Za-z0-9_.-]*\"?[[:space:]]*:[[:space:]]+)[^\"[{[:space:]](.*[^,])?$/\1\"***\"/" \
         -e 's#(://[^:/@"[:space:]]*:)[^@/"[:space:]]+@#\1***@#g' \
         -e 's/(requirepass"?,?[[:space:]]*"?)[^"[:space:]]+/\1***/g'
 }
@@ -4258,6 +4416,7 @@ main() {
     check_migrations
     check_connectivity
     check_agents
+    check_backup_uploads
     check_redis
     check_workdir
     check_device_events

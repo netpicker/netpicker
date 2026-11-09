@@ -37,6 +37,8 @@ spec:
           env:
             {{ include "netpicker.redis" . | nindent 12 }}
             {{ include "netpicker.dbConfig" . | nindent 12 }}
+            - name: CELERY_CONCURRENCY
+              value: "1"
             - name: CELERY_QUEUES
               value: config_commit
             - name: WITHOUT_BEAT
@@ -70,10 +72,7 @@ spec:
           livenessProbe:
             exec:
               command:
-                - /usr/local/bin/celery
-                - inspect
-                - ping
-                - --timeout=3
+                - /celery-health
             initialDelaySeconds: 15
             periodSeconds: 120
             timeoutSeconds: 12

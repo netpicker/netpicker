@@ -6,10 +6,6 @@ global:
   imagePullSecrets: []
   storageClass: "local-storage"
   secretConfig: "default"
-  # The DNS domain of the cluster. The frontend proxies /swagger/ to the
-  # fully qualified name of the swagger service, which ends in this domain.
-  # Change it only if your cluster does not use cluster.local.
-  clusterDomain: "cluster.local"
 
 
 volumePermissions:
@@ -50,31 +46,31 @@ storageClass:
 images:
   agent:
     repository: "netpicker/agent"
-    tag: "2.8.1"
+    tag: "2.8.2"
     pullPolicy: IfNotPresent
   api:
     repository: "netpicker/api"
-    tag: "2.8.1"
+    tag: "2.8.2"
     pullPolicy: IfNotPresent
   db:
     repository: "netpicker/db"
-    tag: "18"
+    tag: "latest"
     pullPolicy: IfNotPresent
   frontend:
     repository: "netpicker/tester-frontend"
-    tag: "2.8.1"
+    tag: "2.8.2"
     pullPolicy: IfNotPresent
   gitd:
     repository: "netpicker/gitd"
-    tag: "2.8.1"
+    tag: "2.8.2"
     pullPolicy: IfNotPresent
   gitdctrl:
     repository: "netpicker/gitdctrl"
-    tag: "2.8.1"
+    tag: "2.8.2"
     pullPolicy: IfNotPresent
   kibbitzer:
     repository: "netpicker/kibbitzer"
-    tag: "2.8.1"
+    tag: "2.8.2"
     pullPolicy: IfNotPresent
   minio:
     registry: "docker.io"
@@ -93,7 +89,7 @@ images:
     pullPolicy: IfNotPresent
   syslogng:
     repository: "netpicker/syslog-ng"
-    tag: "2.8.1"
+    tag: "2.8.2"
     pullPolicy: IfNotPresent
   transferium:
     repository: "netpicker/transferium"
@@ -131,7 +127,7 @@ db:
 # API configuration
 api:
   enabled: true
-  alembicVersion: "c8b7d285bc97"
+  alembicVersion: "3745227835c3"
   dbPassword: netpicker
   cliProxyHost: "agent"
   logLevel: "INFO"

@@ -60,10 +60,7 @@ spec:
           livenessProbe:
             exec:
               command:
-                - /usr/local/bin/celery
-                - inspect
-                - ping
-                - --timeout=3
+                - /celery-health
             initialDelaySeconds: 15
             periodSeconds: 120
             timeoutSeconds: 12

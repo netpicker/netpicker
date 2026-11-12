@@ -281,7 +281,7 @@ services:
       start_period: 5s
 
   redis:
-    image: redis:7-alpine3.21
+    image: redis:7-alpine3.22
     container_name: redis
     labels:
       netpicker.io: service

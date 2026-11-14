@@ -1,0 +1,8 @@
+# local settings of this installation, kept by git pull and update.sh
+.env
+docker-compose.override.yml
+docker-compose.override.yaml
+# backups and the state update.sh keeps for a rollback
+netpicker_backup*.tar
+*.bak.[0-9]*
+.update/

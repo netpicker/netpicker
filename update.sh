@@ -757,6 +757,61 @@ probe_repo() {
     return 0
 }
 
+# check_writable: the repo and its files belong to this user (an install or an
+# earlier update with sudo leaves them to root)
+check_writable() {
+    local me owner n=0 f
+    [ "$(id -u)" -ne 0 ] || return 0
+    me=$(id -u)
+    [ -w "$DIR" ] || n=1
+    n=$((n + $(find "$DIR/.git" ! -user "$me" 2>/dev/null | grep -c .)))
+    while IFS= read -r f; do
+        [ ! -e "$DIR/$f" ] || [ -w "$DIR/$f" ] || n=$((n + 1))
+    done <<EOF
+$(git -C "$DIR" ls-files 2>/dev/null)
+EOF
+    [ "$n" -gt 0 ] || return 0
+    owner=$(ls -ld "$DIR/.git" | awk '{ print $3 }')
+    fail "$(id -un) cannot change $DIR: $n of its files and directories belong to $owner (installed or updated with sudo?)"
+    detail "Run the update as $owner, like the earlier ones:"
+    detail "  sudo ./update.sh"
+    detail "or give the files to $(id -un), so updates no longer need sudo:"
+    detail "  sudo chown -R $(id -un): $DIR"
+    return 1
+}
+
+# fetch_origin URL: fetch the branch from origin; when origin is an SSH URL
+# without a key for this user (e.g. under sudo), from the public URL instead
+fetch_origin() {
+    local url=$1 err
+    g fetch -q --tags --force origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>"$WORK/git.err" && return 0
+    err=$(grep . "$WORK/git.err" | tail -n 1)
+    case "$(cat "$WORK/git.err")" in
+        *publickey* | *Host\ key\ verification\ failed* | *Could\ not\ read\ from\ remote*)
+            if [ "$url" != "$REPO_URL" ] &&
+                g fetch -q --tags --force "$REPO_URL" "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>/dev/null; then
+                info "$(id -un) has no SSH key for $url; fetched from $REPO_URL instead"
+                detail "The repo is public, so it needs no key. To use that URL from now on:"
+                detail "  git remote set-url origin $REPO_URL"
+                return 0
+            fi
+            fail "cannot fetch from $url: $err"
+            detail "$(id -un) has no access with SSH. The repo is public; fetch it without a key with:"
+            detail "  git remote set-url origin $REPO_URL"
+            ;;
+        *Permission\ denied* | *Read-only\ file\ system*)
+            fail "cannot fetch from $url: $err"
+            detail "$(id -un) cannot write to $DIR/.git; run update.sh as its owner ($(ls -ld "$DIR/.git" | awk '{ print $3 }'))."
+            ;;
+        *)
+            fail "cannot fetch from $url: $err"
+            detail "update.sh needs access to GitHub. Behind a proxy, set it for git with:"
+            detail "  git config --global http.proxy http://proxy.example.com:8080"
+            ;;
+    esac
+    return 1
+}
+
 # Sets UP (the upstream ref), BASE (where the local changes start), OLD_HEAD,
 # OLD_BRANCH, and the lists of changed files.
 check_repo() {
@@ -802,19 +857,26 @@ check_repo() {
         elif ! printf '%s\n' "$url" | grep -q 'netpicker/netpicker'; then
             info "origin is $url, not $REPO_URL; pulling from it"
         fi
+        if ! check_writable; then
+            [ $DRY_RUN -eq 1 ] || return 1
+            detail "The dry run goes on with a copy of the repo."
+            GIT_NO_ORIGIN=1
+        fi
         if [ "${GIT_NO_ORIGIN:-0}" = 1 ]; then
-            # dry run without origin: fetch into a copy of the repo
-            git clone -q --no-checkout "$DIR" "$WORK/probe" && git -C "$WORK/probe" remote set-url origin "$REPO_URL" || return 1
+            # dry run without origin or write access: fetch into a copy of the repo
+            # the clone only reads the repo, also when it belongs to another
+            # user; older git only takes safe.directory from the global config
+            printf '[include]\n\tpath = %s\n[safe]\n\tdirectory = *\n' "$HOME/.gitconfig" >"$WORK/gitconfig"
+            if ! GIT_CONFIG_GLOBAL="$WORK/gitconfig" git clone -q --no-checkout "$DIR" "$WORK/probe" 2>"$WORK/git.err" ||
+                ! git -C "$WORK/probe" remote set-url origin "$url"; then
+                fail "cannot copy the repo: $(grep . "$WORK/git.err" | tail -n 1)"
+                return 1
+            fi
             GIT_PROBE="$WORK/probe/.git"
             g reset -q "$(git -C "$DIR" rev-parse HEAD)" 2>/dev/null
         fi
         step "git fetch origin (only updates what git knows about origin, not your files)"
-        if ! g fetch -q --tags --force origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>"$WORK/git.err"; then
-            fail "cannot fetch from $url: $(grep . "$WORK/git.err" | tail -n 1)"
-            detail "update.sh needs access to GitHub. Behind a proxy, set it for git with:"
-            detail "  git config --global http.proxy http://proxy.example.com:8080"
-            return 1
-        fi
+        fetch_origin "$url" || return 1
     fi
     UP="origin/$BRANCH"
     OLD_HEAD=$(g rev-parse HEAD)
@@ -845,7 +907,7 @@ EOF
     # untracked files that the update would overwrite. Mode-only changes and
     # line ending changes that git hides do not count.
     CHANGED=$(g diff --numstat "$BASE" -- | awk -F'\t' '$1 != 0 || $2 != 0 { print $3 }')
-    DELETED=$(g diff --name-only --diff-filter=D "$BASE" --)
+    DELETED=$(g diff --name-only --diff-filter=D "$BASE" -- | tr '\n' ' ')
     COMPOSE_CHANGED= OTHER_CHANGED= IN_THE_WAY=
     for f in $CHANGED; do
         case "$f" in
@@ -853,7 +915,7 @@ EOF
             *) case " $DELETED " in *" $f "*) ;; *) OTHER_CHANGED="$OTHER_CHANGED $f" ;; esac ;;
         esac
     done
-    IN_THE_WAY=$(g ls-files --others --exclude-standard | grep -Fx -f <(g diff --name-only --diff-filter=A "$BASE" "$UP") 2>/dev/null)
+    IN_THE_WAY=$(g ls-files --others --exclude-standard 2>/dev/null | grep -Fx -f <(g diff --name-only --diff-filter=A "$BASE" "$UP") 2>/dev/null)
     if [ -z "$CHANGED$IN_THE_WAY" ]; then
         pass "no local edits of the files of the repo"
     fi
@@ -960,7 +1022,10 @@ check_compose() {
     # the override goes last, as it does with plain 'docker compose'
     [ -z "$ovr" ] || base_files="$base_files:$ovr"
     if ! compose_json "$WORK/base.json" "$base_files"; then
-        fail "cannot read the compose files of commit $(g rev-parse --short "$BASE"): $(grep . "$WORK/compose.err" | tail -n 1)"
+        fail "cannot read the compose files of commit $(g rev-parse --short "$BASE") ($(g log -1 --format=%ad --date=short "$BASE")) with your override: $(grep . "$WORK/compose.err" | tail -n 1)"
+        detail "update.sh compares your compose files with that version to find your edits. This"
+        detail "installation is too far from main for that; move your settings to $OVERRIDE_FILE by"
+        detail "hand, check out $BRANCH ('git checkout -f $BRANCH'), then run update.sh again."
         return 1
     fi
     [ -z "$ovr" ] || { cp "$ovr" "$WORK/override.old"; ovr_arg="$WORK/override.old"; }

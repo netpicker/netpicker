@@ -21,7 +21,7 @@
 # in-flight tasks from the celery task queues in redis. With --reset-workdir
 # it does not check anything either, but discards the uncommitted files and
 # stale git locks left behind in the git repos of the policy workdir with git
-# reset --hard.
+# reset --hard and git clean.
 
 set -o pipefail
 
@@ -1716,7 +1716,7 @@ def check(repo):
         elif reset_blocker(repo, readonly, locks, state):
             emit("WARN", msg)
         else:
-            emit("WARN", "%s; if they are not needed, discard them (git reset --hard) with '%s'"
+            emit("WARN", "%s; if they are not needed, discard them (git reset --hard, git clean) with '%s'"
                  % (msg, mode_arg))
         list_files(repo, dated)
 
